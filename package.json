@@ -1,0 +1,22 @@
+{
+  "name": "gmaps-country-scraper",
+  "version": "1.0.0",
+  "description": "Autonomous country-scale Google Maps lead scraper using gosom/google-maps-scraper plus Nominatim country sharding.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "google-maps",
+    "leads",
+    "scraper",
+    "nominatim"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@turf/turf": "^7.3.4",
+    "better-sqlite3": "^12.8.0",
+    "express": "^5.2.1"
+  }
+}
