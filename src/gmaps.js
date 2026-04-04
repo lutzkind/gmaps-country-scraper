@@ -332,6 +332,7 @@ function toInteger(value) {
 }
 
 module.exports = {
+  extractLocationParts,
   normalizeEntry,
   queryGoogleMaps,
   resolveCountry,
