@@ -126,8 +126,8 @@ Normalized leads include:
 ### Google Maps execution
 
 - `GOOGLE_MAPS_BINARY` default `google-maps-scraper`
-- `GMAPS_FAST_MODE` default `true`
-- `GMAPS_DEPTH` default `2`
+- `GMAPS_FAST_MODE` default `false` so country-scale runs favor completeness over gosom's 21-result fast mode
+- `GMAPS_DEPTH` default `10`
 - `GMAPS_CONCURRENCY` default `1`
 - `GMAPS_RADIUS_CAP_METERS` default `45000`
 - `GMAPS_TARGET_SHARD_RADIUS_METERS` default `15000`
@@ -150,7 +150,7 @@ Normalized leads include:
 - `NOCODB_BASE_ID`
 - `NOCODB_TABLE_ID`
 - `NOCODB_AUTO_SYNC_ON_COMPLETION`
-- `NOCODB_AUTO_SYNC_INTERVAL_MINUTES` sync new leads to NocoDB every N minutes while a job is running (`0` disables)
+- `NOCODB_AUTO_SYNC_INTERVAL_MINUTES` sync new leads to NocoDB every N minutes while a job is running (default `30`, `0` disables)
 - `NOCODB_AUTO_CREATE_COLUMNS`
 
 The default synced schema already includes website, phone, email, address, reviews, and location fields, plus `raw_json` for full source payload retention.
