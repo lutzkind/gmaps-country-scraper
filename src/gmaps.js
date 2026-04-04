@@ -182,6 +182,7 @@ function normalizeEntry(entry, bbox) {
   const emails = Array.isArray(entry.emails)
     ? entry.emails.filter(Boolean)
     : [];
+  const location = extractLocationParts(entry);
 
   return {
     dedupeKey:
@@ -203,6 +204,11 @@ function normalizeEntry(entry, bbox) {
     emails,
     address: stringValue(entry.address),
     completeAddress: entry.complete_address || null,
+    city: location.city,
+    area: location.area,
+    stateRegion: location.stateRegion,
+    postcode: location.postcode,
+    country: location.country,
     lat,
     lon,
     reviewCount: toInteger(entry.review_count),
@@ -212,6 +218,102 @@ function normalizeEntry(entry, bbox) {
     bbox,
     raw: entry,
   };
+}
+
+function extractLocationParts(entry) {
+  const values = collectAddressValues([entry.complete_address, entry]);
+  return {
+    city: pickAddressValue(values, [
+      "city",
+      "town",
+      "village",
+      "municipality",
+      "locality",
+    ]),
+    area: pickAddressValue(values, [
+      "district",
+      "subdistrict",
+      "citydistrict",
+      "borough",
+      "suburb",
+      "neighborhood",
+      "neighbourhood",
+      "quarter",
+      "county",
+      "area",
+    ]),
+    stateRegion: pickAddressValue(values, [
+      "state",
+      "province",
+      "region",
+      "statedistrict",
+    ]),
+    postcode: pickAddressValue(values, [
+      "postalcode",
+      "postcode",
+      "zipcode",
+      "zip",
+    ]),
+    country: pickAddressValue(values, ["country", "countrycode"]),
+  };
+}
+
+function collectAddressValues(sources) {
+  const values = new Map();
+  for (const source of sources) {
+    collectObjectValues(source, values);
+  }
+  return values;
+}
+
+function collectObjectValues(value, values) {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectObjectValues(item, values);
+    }
+    return;
+  }
+
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    if (rawValue == null) {
+      continue;
+    }
+
+    if (typeof rawValue === "object") {
+      collectObjectValues(rawValue, values);
+      continue;
+    }
+
+    const normalizedKey = normalizeAddressKey(rawKey);
+    if (!normalizedKey || values.has(normalizedKey)) {
+      continue;
+    }
+
+    const normalizedValue = stringValue(rawValue);
+    if (normalizedValue) {
+      values.set(normalizedKey, normalizedValue);
+    }
+  }
+}
+
+function pickAddressValue(values, keys) {
+  for (const key of keys) {
+    const value = values.get(normalizeAddressKey(key));
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function normalizeAddressKey(key) {
+  return String(key || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function stringValue(value) {

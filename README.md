@@ -97,6 +97,7 @@ Normalized leads include:
 - `name`, `category`, `categories`
 - `website`, `phone`, `email`
 - `address`, `completeAddress`
+- `city`, `area`, `stateRegion`, `postcode`, `country`
 - `lat`, `lon`
 - `reviewCount`, `reviewRating`
 - `status`, `priceRange`
@@ -156,7 +157,7 @@ Normalized leads include:
 - `NOCODB_AUTO_SYNC_INTERVAL_MINUTES` sync new leads to NocoDB every N minutes while a job is running (default `30`, `0` disables)
 - `NOCODB_AUTO_CREATE_COLUMNS`
 
-The default synced schema already includes website, phone, email, address, reviews, and location fields, plus `raw_json` for full source payload retention.
+The default synced schema already includes website, phone, email, address, city/area/state/postcode fields, reviews, and `raw_json` for full source payload retention.
 
 ## Local run
 

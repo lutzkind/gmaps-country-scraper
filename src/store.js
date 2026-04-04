@@ -72,6 +72,11 @@ function createStore(config) {
       email TEXT,
       address TEXT,
       complete_address_json TEXT NOT NULL,
+      city TEXT,
+      area TEXT,
+      state_region TEXT,
+      postcode TEXT,
+      country TEXT,
       lat REAL NOT NULL,
       lon REAL NOT NULL,
       review_count INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +120,14 @@ function createStore(config) {
       FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
     );
   `);
+
+  ensureLeadColumns(db, "leads", [
+    ["city", "TEXT"],
+    ["area", "TEXT"],
+    ["state_region", "TEXT"],
+    ["postcode", "TEXT"],
+    ["country", "TEXT"],
+  ]);
 
   resetRunningShards(db);
   cleanupExpiredSessions(db);
@@ -931,12 +944,14 @@ function createStore(config) {
             INSERT INTO leads (
               job_id, dedupe_key, place_id, cid, data_id, link, name, category,
               categories_json, website, phone, email, address, complete_address_json,
-              lat, lon, review_count, review_rating, business_status, price_range,
-              source_bbox_json, raw_json, created_at, updated_at
+              city, area, state_region, postcode, country, lat, lon, review_count,
+              review_rating, business_status, price_range, source_bbox_json, raw_json,
+              created_at, updated_at
             ) VALUES (
               @jobId, @dedupeKey, @placeId, @cid, @dataId, @link, @name, @category,
               @categoriesJson, @website, @phone, @email, @address, @completeAddressJson,
-              @lat, @lon, @reviewCount, @reviewRating, @businessStatus, @priceRange,
+              @city, @area, @stateRegion, @postcode, @country, @lat, @lon,
+              @reviewCount, @reviewRating, @businessStatus, @priceRange,
               @sourceBBoxJson, @rawJson, @timestamp, @timestamp
             )
             ON CONFLICT(job_id, dedupe_key) DO UPDATE SET
@@ -964,6 +979,26 @@ function createStore(config) {
                 ELSE leads.address
               END,
               complete_address_json = excluded.complete_address_json,
+              city = CASE
+                WHEN COALESCE(leads.city, '') = '' THEN excluded.city
+                ELSE leads.city
+              END,
+              area = CASE
+                WHEN COALESCE(leads.area, '') = '' THEN excluded.area
+                ELSE leads.area
+              END,
+              state_region = CASE
+                WHEN COALESCE(leads.state_region, '') = '' THEN excluded.state_region
+                ELSE leads.state_region
+              END,
+              postcode = CASE
+                WHEN COALESCE(leads.postcode, '') = '' THEN excluded.postcode
+                ELSE leads.postcode
+              END,
+              country = CASE
+                WHEN COALESCE(leads.country, '') = '' THEN excluded.country
+                ELSE leads.country
+              END,
               review_count = CASE
                 WHEN excluded.review_count > COALESCE(leads.review_count, 0) THEN excluded.review_count
                 ELSE leads.review_count
@@ -992,6 +1027,11 @@ function createStore(config) {
             email: lead.email,
             address: lead.address,
             completeAddressJson: JSON.stringify(lead.completeAddress || null),
+            city: lead.city,
+            area: lead.area,
+            stateRegion: lead.stateRegion,
+            postcode: lead.postcode,
+            country: lead.country,
             lat: lead.lat,
             lon: lead.lon,
             reviewCount: lead.reviewCount || 0,
@@ -1172,6 +1212,21 @@ function cleanupExpiredSessions(db) {
   ).run({ timestamp: nowIso() });
 }
 
+function ensureLeadColumns(db, tableName, columns) {
+  const existing = new Set(
+    db
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all()
+      .map((column) => column.name)
+  );
+
+  for (const [name, type] of columns) {
+    if (!existing.has(name)) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${name} ${type}`);
+    }
+  }
+}
+
 function deserializeJobRow(row) {
   return {
     id: row.id,
@@ -1236,6 +1291,11 @@ function deserializeLeadRow(row) {
     email: row.email,
     address: row.address,
     completeAddress: JSON.parse(row.complete_address_json),
+    city: row.city,
+    area: row.area,
+    stateRegion: row.state_region,
+    postcode: row.postcode,
+    country: row.country,
     lat: row.lat,
     lon: row.lon,
     reviewCount: row.review_count,
