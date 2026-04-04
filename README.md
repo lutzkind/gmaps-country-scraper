@@ -135,8 +135,10 @@ Normalized leads include:
 - `NOCODB_BASE_ID`
 - `NOCODB_TABLE_ID`
 - `NOCODB_AUTO_SYNC_ON_COMPLETION`
+- `NOCODB_AUTO_SYNC_INTERVAL_MINUTES` sync new leads to NocoDB every N minutes while a job is running (`0` disables)
 - `NOCODB_AUTO_CREATE_COLUMNS`
-- `NOCODB_PROMOTED_TAGS` top-level Google Maps fields from `raw` to promote as extra `gmaps_*` columns
+
+The default synced schema already includes website, phone, email, address, reviews, and location fields, plus `raw_json` for full source payload retention.
 
 ## Local run
 

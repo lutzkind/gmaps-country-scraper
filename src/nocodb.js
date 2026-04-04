@@ -51,6 +51,7 @@ function createNocoDbService({ store, config }) {
         tableId: settings.tableId,
         columnCount: columns.length,
         autoSyncOnCompletion: settings.autoSyncOnCompletion,
+        autoSyncIntervalMinutes: settings.autoSyncIntervalMinutes || 0,
         autoCreateColumns: settings.autoCreateColumns,
       };
     },
@@ -75,7 +76,7 @@ function createNocoDbService({ store, config }) {
       store.markNocoDbSyncStarted(jobId);
 
       try {
-        const desiredFields = buildDesiredFields(settings.promotedTags);
+        const desiredFields = buildDesiredFields();
         let columns = await listColumns(settings);
         let availableFields = collectColumnNames(columns);
 
@@ -110,9 +111,7 @@ function createNocoDbService({ store, config }) {
             break;
           }
 
-          const records = leads.map((lead) =>
-            buildRecord(job, lead, settings.promotedTags, availableFields)
-          );
+          const records = leads.map((lead) => buildRecord(job, lead, availableFields));
 
           await createRecords(settings, records);
           syncedRecordCount += records.length;
@@ -155,6 +154,42 @@ function createNocoDbService({ store, config }) {
         return null;
       }
     },
+
+    getRunningJobSyncIdsDue() {
+      const settings = store.getNocoDbConfig();
+      if (!hasEnoughSettings(settings)) {
+        return [];
+      }
+
+      const intervalMinutes = Number(settings.autoSyncIntervalMinutes || 0);
+      if (!intervalMinutes) {
+        return [];
+      }
+
+      return store
+        .listJobs()
+        .filter((job) => job.status === "running")
+        .filter((job) => {
+          const syncState = store.getNocoDbSyncState(job.id);
+          if (syncState.lastStatus === "running") {
+            return false;
+          }
+
+          const latestLead = store.getJobLatestLeadId(job.id);
+          if (!latestLead || latestLead <= (syncState.lastSyncedLeadId || 0)) {
+            return false;
+          }
+
+          const referenceTime = syncState.lastSyncedAt || job.startedAt || job.updatedAt;
+          if (!referenceTime) {
+            return true;
+          }
+
+          const dueAt = new Date(referenceTime).getTime() + intervalMinutes * 60_000;
+          return Number.isNaN(dueAt) || Date.now() >= dueAt;
+        })
+        .map((job) => job.id);
+    },
   };
 }
 
@@ -175,15 +210,23 @@ function resolveSettings(store, input) {
 }
 
 function sanitizeSettings(input) {
+  const autoSyncIntervalMinutes = Number.parseInt(
+    String(input.autoSyncIntervalMinutes ?? "0"),
+    10
+  );
+
   return {
     baseUrl: cleanString(input.baseUrl),
     apiToken: cleanString(input.apiToken),
     baseId: cleanString(input.baseId),
     tableId: cleanString(input.tableId),
     autoSyncOnCompletion: Boolean(input.autoSyncOnCompletion),
+    autoSyncIntervalMinutes:
+      Number.isFinite(autoSyncIntervalMinutes) && autoSyncIntervalMinutes > 0
+        ? autoSyncIntervalMinutes
+        : 0,
     autoCreateColumns:
       input.autoCreateColumns == null ? true : Boolean(input.autoCreateColumns),
-    promotedTags: normalizeStringArray(input.promotedTags),
   };
 }
 
@@ -211,27 +254,22 @@ function toPublicConfig(settings) {
     baseId: settings.baseId,
     tableId: settings.tableId,
     autoSyncOnCompletion: Boolean(settings.autoSyncOnCompletion),
+    autoSyncIntervalMinutes: settings.autoSyncIntervalMinutes || 0,
     autoCreateColumns: settings.autoCreateColumns !== false,
-    promotedTags: normalizeStringArray(settings.promotedTags),
     hasApiToken: Boolean(settings.apiToken),
   };
 }
 
-function buildDesiredFields(promotedTags) {
-  const extraFields = normalizeStringArray(promotedTags).map((tagKey) => ({
-    name: promotedTagFieldName(tagKey),
-    type: "SingleLineText",
-  }));
-
+function buildDesiredFields() {
   const byName = new Map();
-  for (const field of [...STANDARD_FIELDS, ...extraFields]) {
+  for (const field of STANDARD_FIELDS) {
     byName.set(field.name, field);
   }
 
   return [...byName.values()];
 }
 
-function buildRecord(job, lead, promotedTags, availableFields) {
+function buildRecord(job, lead, availableFields) {
   const record = {
     job_id: job.id,
     country: job.country,
@@ -263,10 +301,6 @@ function buildRecord(job, lead, promotedTags, availableFields) {
     lead_created_at: lead.createdAt || null,
     lead_updated_at: lead.updatedAt || null,
   };
-
-  for (const tagKey of normalizeStringArray(promotedTags)) {
-    record[promotedTagFieldName(tagKey)] = stringOrEmpty(lead.raw?.[tagKey]);
-  }
 
   return Object.fromEntries(
     Object.entries(record).filter(([fieldName]) => availableFields.has(fieldName))
@@ -417,24 +451,6 @@ function collectColumnNames(columns) {
   return names;
 }
 
-function promotedTagFieldName(tagKey) {
-  return `gmaps_${String(tagKey)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")}`;
-}
-
-function normalizeStringArray(input) {
-  const values = Array.isArray(input)
-    ? input
-    : String(input || "")
-        .split(",")
-        .map((item) => item.trim());
-
-  return [...new Set(values.filter(Boolean))];
-}
-
 function defaultSyncState(jobId) {
   return {
     jobId,
@@ -453,10 +469,6 @@ function cleanString(value) {
   return normalized || null;
 }
 
-function stringOrEmpty(value) {
-  return value == null ? "" : String(value);
-}
-
 function safeJsonParse(value) {
   try {
     return JSON.parse(value);
@@ -473,5 +485,4 @@ function createHttpError(statusCode, message) {
 
 module.exports = {
   createNocoDbService,
-  promotedTagFieldName,
 };

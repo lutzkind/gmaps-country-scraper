@@ -279,10 +279,10 @@
             <input id="nocodb-api-token" name="apiToken" type="password" placeholder="API token (leave blank to keep saved token)">
             <input id="nocodb-base-id" name="baseId" placeholder="Base ID">
             <input id="nocodb-table-id" name="tableId" placeholder="Table ID for synced leads">
-            <input id="nocodb-promoted-tags" name="promotedTags" placeholder="Promoted Google fields, comma-separated">
+            <input id="nocodb-auto-sync-interval" name="autoSyncIntervalMinutes" type="number" min="0" step="1" placeholder="Auto-sync interval while jobs run (minutes, 0 disables)">
             <label class="inline-option"><input id="nocodb-auto-sync" type="checkbox"> Auto-sync completed jobs</label>
             <label class="inline-option"><input id="nocodb-auto-create-columns" type="checkbox"> Auto-create missing NocoDB columns</label>
-            <div class="subtle">The sync stores normalized lead fields plus <code>raw_json</code>. Promoted fields become extra columns such as <code>gmaps_reviews_link</code>.</div>
+            <div class="subtle">The sync stores normalized lead fields plus <code>raw_json</code>. Website, phone, email, address, reviews, and core location fields are synced by default. Set the interval to push new leads into NocoDB while a job is still running.</div>
             <div class="toolbar">
               <button type="submit">Save NocoDB settings</button>
               <button id="nocodb-test-button" class="secondary" type="button">Test connection</button>
@@ -317,6 +317,7 @@
             </div>
             <div class="toolbar">
               <button id="cancel-job-button" class="secondary" type="button">Cancel job</button>
+              <button id="delete-job-button" class="secondary" type="button">Delete job</button>
               <button id="sync-nocodb-button" class="secondary" type="button">Sync to NocoDB</button>
             </div>
             <div id="job-links" class="subtle"></div>
@@ -420,7 +421,7 @@
         nocodbApiToken: document.getElementById("nocodb-api-token"),
         nocodbBaseId: document.getElementById("nocodb-base-id"),
         nocodbTableId: document.getElementById("nocodb-table-id"),
-        nocodbPromotedTags: document.getElementById("nocodb-promoted-tags"),
+        nocodbAutoSyncInterval: document.getElementById("nocodb-auto-sync-interval"),
         nocodbAutoSync: document.getElementById("nocodb-auto-sync"),
         nocodbAutoCreateColumns: document.getElementById("nocodb-auto-create-columns"),
         nocodbTestButton: document.getElementById("nocodb-test-button"),
@@ -544,7 +545,7 @@
           : "API token";
         els.nocodbBaseId.value = payload.baseId || "";
         els.nocodbTableId.value = payload.tableId || "";
-        els.nocodbPromotedTags.value = (payload.promotedTags || []).join(", ");
+        els.nocodbAutoSyncInterval.value = String(payload.autoSyncIntervalMinutes || 0);
         els.nocodbAutoSync.checked = Boolean(payload.autoSyncOnCompletion);
         els.nocodbAutoCreateColumns.checked = payload.autoCreateColumns !== false;
       }
@@ -554,10 +555,10 @@
           baseUrl: els.nocodbBaseUrl.value.trim(),
           baseId: els.nocodbBaseId.value.trim(),
           tableId: els.nocodbTableId.value.trim(),
-          promotedTags: els.nocodbPromotedTags.value
-            .split(",")
-            .map((item) => item.trim())
-            .filter(Boolean),
+          autoSyncIntervalMinutes: Number.parseInt(
+            els.nocodbAutoSyncInterval.value || "0",
+            10
+          ) || 0,
           autoSyncOnCompletion: els.nocodbAutoSync.checked,
           autoCreateColumns: els.nocodbAutoCreateColumns.checked,
         };
@@ -607,11 +608,17 @@
         `;
 
         const sync = syncStatus?.sync || {};
+        const intervalMinutes = syncStatus?.config?.autoSyncIntervalMinutes || 0;
+        const intervalLabel =
+          intervalMinutes > 0
+            ? ` · incremental every ${intervalMinutes} min`
+            : "";
         const syncMessage = sync.lastMessage
-          ? `NocoDB sync: ${sync.lastStatus || "idle"} · ${sync.lastMessage}`
-          : `NocoDB sync: ${sync.lastStatus || "idle"}`;
+          ? `NocoDB sync: ${sync.lastStatus || "idle"}${intervalLabel} · ${sync.lastMessage}`
+          : `NocoDB sync: ${sync.lastStatus || "idle"}${intervalLabel}`;
         els.jobSyncStatus.textContent = syncMessage;
         els.cancelJobButton.disabled = ["completed", "partial", "failed", "canceled"].includes(job.status);
+        els.deleteJobButton.disabled = !["completed", "partial", "failed", "canceled"].includes(job.status);
         els.syncNocoDbButton.disabled = !syncStatus?.enabled;
       }
 
@@ -814,6 +821,26 @@
             body: "{}",
           });
           setMessage(els.createJobMessage, "Job canceled.");
+          await fullRefresh();
+        } catch (error) {
+          setMessage(els.createJobMessage, error.message, true);
+        }
+      });
+
+      els.deleteJobButton.addEventListener("click", async () => {
+        if (!state.selectedJobId) {
+          return;
+        }
+
+        setMessage(els.createJobMessage, "Deleting job...");
+
+        try {
+          await requestJson(`/jobs/${state.selectedJobId}`, {
+            method: "DELETE",
+          });
+
+          state.selectedJobId = null;
+          setMessage(els.createJobMessage, "Job deleted.");
           await fullRefresh();
         } catch (error) {
           setMessage(els.createJobMessage, error.message, true);
