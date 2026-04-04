@@ -39,6 +39,7 @@ async function resolveCountry(country, config) {
 async function queryGoogleMaps({ job, shard, geometry, config }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gmaps-country-"));
   const outputPath = path.join(tempDir, "results.json");
+  const inputPath = path.join(tempDir, "queries.txt");
   const center = bboxCenter(shard.bbox);
   const radiusMeters = Math.max(
     1000,
@@ -47,9 +48,11 @@ async function queryGoogleMaps({ job, shard, geometry, config }) {
   const proxy = selectProxy(job.searchParams?.proxies || [], shard.attemptCount);
 
   try {
+    await fs.writeFile(inputPath, `${job.searchParams?.query || job.keyword}\n`, "utf8");
+
     const args = [
       "-input",
-      job.keyword,
+      inputPath,
       "-results",
       outputPath,
       "-json",
@@ -189,7 +192,7 @@ function normalizeEntry(entry, bbox) {
     name: stringValue(entry.title),
     category: stringValue(entry.category),
     categories,
-    website: stringValue(entry.web_site),
+    website: stringValue(entry.website ?? entry.web_site),
     phone: stringValue(entry.phone),
     email: emails[0] || null,
     emails,
