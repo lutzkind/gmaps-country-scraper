@@ -283,7 +283,7 @@
             <input id="nocodb-auto-sync-interval" name="autoSyncIntervalMinutes" type="number" min="0" step="1" placeholder="Auto-sync interval while jobs run (minutes, 0 disables)">
             <label class="inline-option"><input id="nocodb-auto-sync" type="checkbox"> Auto-sync completed jobs</label>
             <label class="inline-option"><input id="nocodb-auto-create-columns" type="checkbox"> Auto-create missing NocoDB columns</label>
-            <div class="subtle">The sync stores normalized lead fields plus <code>raw_json</code>. Website, phone, email, address, reviews, and core location fields are synced by default. Set the interval to push new leads into NocoDB while a job is still running.</div>
+            <div class="subtle">The sync stores query/source fields plus normalized lead fields and <code>raw_json</code>. Website, phone, email, address, primary category, subcategory, all subcategories, and reviews are synced by default.</div>
             <div class="toolbar">
               <button type="submit">Save NocoDB settings</button>
               <button id="nocodb-test-button" class="secondary" type="button">Test connection</button>
@@ -394,9 +394,9 @@
                      <th>Phone</th>
                      <th>Email</th>
                      <th>Primary category</th>
-                     <th>Category list</th>
+                      <th>Subcategory</th>
                      <th>Reviews</th>
-                     <th>Coordinates</th>
+                      <th>All subcategories</th>
                     </tr>
                 </thead>
                 <tbody id="lead-table-body"></tbody>
@@ -692,13 +692,13 @@
             <td>${escapeHtml(lead.phone || "-")}</td>
             <td>${escapeHtml(lead.email || "-")}</td>
             <td>${escapeHtml(lead.category || "-")}</td>
-            <td>${escapeHtml((lead.categories || []).join(", ") || "-")}</td>
+            <td>${escapeHtml(lead.subcategory || "-")}</td>
             <td>${escapeHtml(
                 lead.reviewCount || lead.reviewRating
                   ? `${lead.reviewRating ?? "-"} / ${lead.reviewCount ?? 0}`
                   : "-"
               )}</td>
-            <td>${escapeHtml(`${lead.lat}, ${lead.lon}`)}</td>
+            <td>${escapeHtml((lead.allSubcategories || []).join(" | ") || "-")}</td>
           </tr>
         `).join("");
       }

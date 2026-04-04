@@ -1201,6 +1201,8 @@ function deserializeShardRow(row) {
 }
 
 function deserializeLeadRow(row) {
+  const categories = JSON.parse(row.categories_json);
+  const allSubcategories = extractGmapsSubcategories(row.category, categories);
   return {
     id: row.id,
     jobId: row.job_id,
@@ -1211,7 +1213,9 @@ function deserializeLeadRow(row) {
     link: row.link,
     name: row.name,
     category: row.category,
-    categories: JSON.parse(row.categories_json),
+    subcategory: allSubcategories[0] || "",
+    allSubcategories,
+    categories,
     website: row.website,
     phone: row.phone,
     email: row.email,
@@ -1225,9 +1229,22 @@ function deserializeLeadRow(row) {
     priceRange: row.price_range,
     sourceBBox: JSON.parse(row.source_bbox_json),
     raw: JSON.parse(row.raw_json),
+    source: "gmaps",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function extractGmapsSubcategories(primaryCategory, categories) {
+  const primary = String(primaryCategory || "").trim().toLowerCase();
+  return [
+    ...new Set(
+      (Array.isArray(categories) ? categories : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .filter((value) => value.toLowerCase() !== primary)
+    ),
+  ];
 }
 
 function defaultSyncState(jobId) {
