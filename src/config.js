@@ -65,7 +65,7 @@ module.exports = {
     process.env.NOMINATIM_URL ||
     "https://nominatim.openstreetmap.org/search",
   workerPollMs: intFromEnv("WORKER_POLL_MS", 5000),
-  maxShardDepth: intFromEnv("MAX_SHARD_DEPTH", 7),
+  maxShardDepth: intFromEnv("MAX_SHARD_DEPTH", 10),
   retryLimit: intFromEnv("RETRY_LIMIT", 6),
   retryBaseDelayMs: intFromEnv("RETRY_BASE_DELAY_MS", 60000),
   resultSplitThreshold: intFromEnv("RESULT_SPLIT_THRESHOLD", 18),
@@ -77,9 +77,13 @@ module.exports = {
   sessionTtlHours: intFromEnv("SESSION_TTL_HOURS", 24),
   googleMapsBinary: process.env.GOOGLE_MAPS_BINARY || "google-maps-scraper",
   googleMapsFastMode: boolFromEnv("GMAPS_FAST_MODE", true),
-  googleMapsDepth: intFromEnv("GMAPS_DEPTH", 1),
+  googleMapsDepth: intFromEnv("GMAPS_DEPTH", 2),
   googleMapsConcurrency: intFromEnv("GMAPS_CONCURRENCY", 1),
   googleMapsRadiusCapMeters: intFromEnv("GMAPS_RADIUS_CAP_METERS", 45000),
+  googleMapsTargetShardRadiusMeters: intFromEnv(
+    "GMAPS_TARGET_SHARD_RADIUS_METERS",
+    15000
+  ),
   googleMapsExitOnInactivity:
     process.env.GMAPS_EXIT_ON_INACTIVITY || "90s",
   nocoDb: {

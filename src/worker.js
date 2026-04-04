@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const {
   bboxIntersectsGeometry,
+  bboxRadiusMeters,
   splitBBox,
   canSplitBBox,
 } = require("./geo");
@@ -79,12 +80,23 @@ function createWorker({ store, config, nocoDb = null }) {
   }
 
   async function processShard(job, shard, geometry) {
-      if (geometry?.geometry && !bboxIntersectsGeometry(shard.bbox, geometry)) {
-        store.skipShard(shard.id, "Shard does not intersect the country geometry.");
-        return;
-      }
+    if (geometry?.geometry && !bboxIntersectsGeometry(shard.bbox, geometry)) {
+      store.skipShard(shard.id, "Shard does not intersect the country geometry.");
+      return;
+    }
 
-      try {
+    const canSplit =
+      shard.depth < config.maxShardDepth && canSplitBBox(shard.bbox, config);
+
+    if (
+      canSplit &&
+      bboxRadiusMeters(shard.bbox) > config.googleMapsTargetShardRadiusMeters
+    ) {
+      store.splitShard(shard.id, splitBBox(shard.bbox));
+      return;
+    }
+
+    try {
       const response = await queryGoogleMaps({
         job,
         shard,
@@ -112,9 +124,6 @@ function createWorker({ store, config, nocoDb = null }) {
         error.statusCode === 429 ||
         error.statusCode === 504 ||
         /timeout|captcha|blocked|inactivity|proxy|tunnel/i.test(error.message);
-
-      const canSplit =
-        shard.depth < config.maxShardDepth && canSplitBBox(shard.bbox, config);
 
       if (store.getJob(job.id)?.status === "canceled") {
         return;

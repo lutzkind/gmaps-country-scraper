@@ -1,11 +1,12 @@
 # Google Maps Country Scraper
 
-Long-running Google Maps lead scraper that accepts **country + keyword**, shards the country into resumable work units, runs `gosom/google-maps-scraper` per shard, and exposes a small authenticated dashboard for control, monitoring, cancelation, exports, and NocoDB sync.
+Long-running Google Maps lead scraper that accepts **country + keyword**, shards the country into resumable work units, runs `gosom/google-maps-scraper` per shard, and exposes a small authenticated dashboard for control, monitoring, pause/resume, cancellation, exports, and NocoDB sync.
 
 ## What it does
 
 - resolves a country boundary with Nominatim
-- starts with the country bbox and recursively splits dense shards
+- starts with the country bbox and proactively splits oversized shards before querying
+- recursively splits dense shards for deeper coverage
 - runs `google-maps-scraper` against each shard using `-geo` + `-radius`
 - optionally rotates proxies across shard attempts
 - persists jobs, shards, sessions, and leads in SQLite
@@ -19,7 +20,7 @@ The dashboard lets you:
 - submit jobs with `country`, `keyword`, and optional proxy pool
 - inspect shard status, retries, errors, and throughput
 - preview lead samples as they accumulate
-- cancel active jobs
+- pause, resume, or cancel active jobs
 - save/test NocoDB settings and push leads into a target table
 
 ## API
@@ -54,6 +55,18 @@ curl -X POST http://localhost:3000/jobs/<job-id>/cancel \
   -d '{}'
 ```
 
+### Pause or resume a job
+
+```bash
+curl -X POST http://localhost:3000/jobs/<job-id>/pause \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+curl -X POST http://localhost:3000/jobs/<job-id>/resume \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
 ### Download artifacts
 
 ```bash
@@ -65,11 +78,12 @@ curl -L "http://localhost:3000/jobs/<job-id>/download?format=json" -o leads.json
 
 1. Resolve the country boundary and bbox with Nominatim.
 2. Seed one shard covering the whole country.
-3. Run a Google Maps geo/radius search for the shard center.
-4. If the shard looks saturated, split it into four children and continue.
-5. Retry transient failures with backoff, optionally using a different proxy.
-6. Deduplicate leads by place identifiers or stable fallback keys.
-7. Finalize the job once every shard reaches a terminal state.
+3. Split large shards until each shard is geographically small enough for a focused geo/radius search.
+4. Run a Google Maps geo/radius search for the shard center.
+5. If the shard looks saturated, split it into four children and continue.
+6. Retry transient failures with backoff, optionally using a different proxy.
+7. Deduplicate leads by place identifiers or stable fallback keys.
+8. Finalize the job once every shard reaches a terminal state.
 
 This is designed for multi-day runs. The service can restart and resume from SQLite state.
 
@@ -113,15 +127,16 @@ Normalized leads include:
 
 - `GOOGLE_MAPS_BINARY` default `google-maps-scraper`
 - `GMAPS_FAST_MODE` default `true`
-- `GMAPS_DEPTH` default `1`
+- `GMAPS_DEPTH` default `2`
 - `GMAPS_CONCURRENCY` default `1`
 - `GMAPS_RADIUS_CAP_METERS` default `45000`
+- `GMAPS_TARGET_SHARD_RADIUS_METERS` default `15000`
 - `GMAPS_EXIT_ON_INACTIVITY` default `90s`
 
 ### Job orchestration
 
 - `WORKER_POLL_MS` default `5000`
-- `MAX_SHARD_DEPTH` default `7`
+- `MAX_SHARD_DEPTH` default `10`
 - `RESULT_SPLIT_THRESHOLD` default `18`
 - `MIN_SHARD_WIDTH_DEG` default `0.05`
 - `MIN_SHARD_HEIGHT_DEG` default `0.05`
@@ -168,5 +183,6 @@ docker run \
 ## Notes
 
 - Large countries will still take a long time; this is a resumable batch system, not a one-shot scraper.
+- Long jobs depend on persistent storage. In Coolify, mount a writable volume to `/app/data` so SQLite state survives redeploys.
 - Proxy support is optional but useful for long-running country-scale jobs and repeated retries.
 - `gosom/google-maps-scraper` behavior and blocking risk depend on your execution profile, query density, and proxy quality.
