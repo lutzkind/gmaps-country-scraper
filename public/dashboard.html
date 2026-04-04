@@ -409,6 +409,7 @@
         jobs: [],
         refreshTimer: null,
         nocodbConfig: null,
+        nocodbDirty: false,
       };
 
       const els = {
@@ -437,6 +438,7 @@
         jobLinks: document.getElementById("job-links"),
         jobSyncStatus: document.getElementById("job-sync-status"),
         cancelJobButton: document.getElementById("cancel-job-button"),
+        deleteJobButton: document.getElementById("delete-job-button"),
         syncNocoDbButton: document.getElementById("sync-nocodb-button"),
         statsGrid: document.getElementById("stats-grid"),
         shardStatusFilter: document.getElementById("shard-status-filter"),
@@ -535,9 +537,16 @@
         renderJobs();
       }
 
-      async function loadNocoDbConfig() {
+      function setNocoDbDirty(isDirty) {
+        state.nocodbDirty = Boolean(isDirty);
+      }
+
+      async function loadNocoDbConfig(options = {}) {
         const payload = await requestJson("/integrations/nocodb");
         state.nocodbConfig = payload;
+        if (state.nocodbDirty && !options.force) {
+          return;
+        }
         els.nocodbBaseUrl.value = payload.baseUrl || "";
         els.nocodbApiToken.value = "";
         els.nocodbApiToken.placeholder = payload.hasApiToken
@@ -548,6 +557,7 @@
         els.nocodbAutoSyncInterval.value = String(payload.autoSyncIntervalMinutes || 0);
         els.nocodbAutoSync.checked = Boolean(payload.autoSyncOnCompletion);
         els.nocodbAutoCreateColumns.checked = payload.autoCreateColumns !== false;
+        setNocoDbDirty(false);
       }
 
       function nocodbPayloadFromForm(includeToken) {
@@ -618,7 +628,9 @@
           : `NocoDB sync: ${sync.lastStatus || "idle"}${intervalLabel}`;
         els.jobSyncStatus.textContent = syncMessage;
         els.cancelJobButton.disabled = ["completed", "partial", "failed", "canceled"].includes(job.status);
-        els.deleteJobButton.disabled = !["completed", "partial", "failed", "canceled"].includes(job.status);
+        if (els.deleteJobButton) {
+          els.deleteJobButton.disabled = !["completed", "partial", "failed", "canceled"].includes(job.status);
+        }
         els.syncNocoDbButton.disabled = !syncStatus?.enabled;
       }
 
@@ -762,7 +774,7 @@
           });
 
           state.nocodbConfig = payload;
-          await loadNocoDbConfig();
+          await loadNocoDbConfig({ force: true });
           setMessage(els.nocodbMessage, "NocoDB settings saved.");
           await refreshSelectedJob();
         } catch (error) {
@@ -788,6 +800,13 @@
           setMessage(els.nocodbMessage, error.message, true);
         }
       });
+
+      for (const field of els.nocodbForm.querySelectorAll("input")) {
+        const eventName = field.type === "checkbox" ? "change" : "input";
+        field.addEventListener(eventName, () => {
+          setNocoDbDirty(true);
+        });
+      }
 
       els.refreshJobs.addEventListener("click", () => {
         fullRefresh().catch((error) => {
@@ -827,25 +846,27 @@
         }
       });
 
-      els.deleteJobButton.addEventListener("click", async () => {
-        if (!state.selectedJobId) {
-          return;
-        }
+      if (els.deleteJobButton) {
+        els.deleteJobButton.addEventListener("click", async () => {
+          if (!state.selectedJobId) {
+            return;
+          }
 
-        setMessage(els.createJobMessage, "Deleting job...");
+          setMessage(els.createJobMessage, "Deleting job...");
 
-        try {
-          await requestJson(`/jobs/${state.selectedJobId}`, {
-            method: "DELETE",
-          });
+          try {
+            await requestJson(`/jobs/${state.selectedJobId}`, {
+              method: "DELETE",
+            });
 
-          state.selectedJobId = null;
-          setMessage(els.createJobMessage, "Job deleted.");
-          await fullRefresh();
-        } catch (error) {
-          setMessage(els.createJobMessage, error.message, true);
-        }
-      });
+            state.selectedJobId = null;
+            setMessage(els.createJobMessage, "Job deleted.");
+            await fullRefresh();
+          } catch (error) {
+            setMessage(els.createJobMessage, error.message, true);
+          }
+        });
+      }
 
       els.syncNocoDbButton.addEventListener("click", async () => {
         if (!state.selectedJobId) {
