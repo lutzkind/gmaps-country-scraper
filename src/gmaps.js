@@ -46,6 +46,11 @@ async function queryGoogleMaps({ job, shard, geometry, config }) {
     bboxRadiusMeters(shard.bbox, config.googleMapsRadiusCapMeters)
   );
   const proxy = selectProxy(job.searchParams?.proxies || [], shard.attemptCount);
+  const comprehensiveMode = Boolean(job.searchParams?.comprehensiveMode);
+  const effectiveDepth = comprehensiveMode
+    ? Math.max(1, config.googleMapsComprehensiveDepth)
+    : Math.max(1, config.googleMapsDepth);
+  const useFastMode = comprehensiveMode ? false : config.googleMapsFastMode;
 
   try {
     await fs.writeFile(inputPath, `${job.searchParams?.query || job.keyword}\n`, "utf8");
@@ -61,14 +66,14 @@ async function queryGoogleMaps({ job, shard, geometry, config }) {
       "-radius",
       String(radiusMeters),
       "-depth",
-      String(Math.max(1, config.googleMapsDepth)),
+      String(effectiveDepth),
       "-c",
       String(Math.max(1, config.googleMapsConcurrency)),
       "-exit-on-inactivity",
       config.googleMapsExitOnInactivity,
     ];
 
-    if (config.googleMapsFastMode) {
+    if (useFastMode) {
       args.push("-fast-mode");
     }
 

@@ -18,6 +18,7 @@ Long-running Google Maps lead scraper that accepts **country + keyword**, shards
 The dashboard lets you:
 
 - submit jobs with `country`, `keyword`, and optional proxy pool
+- choose between the default fast profile and an optional comprehensive mode
 - inspect shard status, retries, errors, and throughput
 - preview lead samples as they accumulate
 - pause, resume, or cancel active jobs
@@ -33,6 +34,7 @@ curl -X POST http://localhost:3000/jobs \
   -d '{
     "country": "United States",
     "keyword": "boutique hotels",
+    "comprehensiveMode": true,
     "proxies": "http://user:pass@proxy-1:8080\nhttp://user:pass@proxy-2:8080"
   }'
 ```
@@ -126,8 +128,9 @@ Normalized leads include:
 ### Google Maps execution
 
 - `GOOGLE_MAPS_BINARY` default `google-maps-scraper`
-- `GMAPS_FAST_MODE` default `false` so country-scale runs favor completeness over gosom's 21-result fast mode
-- `GMAPS_DEPTH` default `10`
+- `GMAPS_FAST_MODE` default `true` for the faster gosom profile in normal runs
+- `GMAPS_DEPTH` default `2`
+- `GMAPS_COMPREHENSIVE_DEPTH` default `10` when a job opts into comprehensive mode
 - `GMAPS_CONCURRENCY` default `1`
 - `GMAPS_RADIUS_CAP_METERS` default `45000`
 - `GMAPS_TARGET_SHARD_RADIUS_METERS` default `15000`
@@ -185,4 +188,5 @@ docker run \
 - Large countries will still take a long time; this is a resumable batch system, not a one-shot scraper.
 - Long jobs depend on persistent storage. In Coolify, mount a writable volume to `/app/data` so SQLite state survives redeploys.
 - Proxy support is optional but useful for long-running country-scale jobs and repeated retries.
+- Comprehensive mode is job-specific and disables gosom fast mode while using the deeper depth setting.
 - `gosom/google-maps-scraper` behavior and blocking risk depend on your execution profile, query density, and proxy quality.

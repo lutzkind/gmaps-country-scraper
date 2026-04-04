@@ -76,8 +76,9 @@ module.exports = {
   sessionCookieName: process.env.SESSION_COOKIE_NAME || "gmaps_scraper_session",
   sessionTtlHours: intFromEnv("SESSION_TTL_HOURS", 24),
   googleMapsBinary: process.env.GOOGLE_MAPS_BINARY || "google-maps-scraper",
-  googleMapsFastMode: boolFromEnv("GMAPS_FAST_MODE", false),
-  googleMapsDepth: intFromEnv("GMAPS_DEPTH", 10),
+  googleMapsFastMode: boolFromEnv("GMAPS_FAST_MODE", true),
+  googleMapsDepth: intFromEnv("GMAPS_DEPTH", 2),
+  googleMapsComprehensiveDepth: intFromEnv("GMAPS_COMPREHENSIVE_DEPTH", 10),
   googleMapsConcurrency: intFromEnv("GMAPS_CONCURRENCY", 1),
   googleMapsRadiusCapMeters: intFromEnv("GMAPS_RADIUS_CAP_METERS", 45000),
   googleMapsTargetShardRadiusMeters: intFromEnv(

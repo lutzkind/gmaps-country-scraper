@@ -83,6 +83,7 @@ function createApp({ store, config, nocoDb }) {
       const country = String(req.body.country || "").trim();
       const keyword = String(req.body.keyword || "").trim();
       const searchParams = resolveSearchParams(keyword, {
+        comprehensiveMode: req.body.comprehensiveMode,
         proxies: req.body.proxies,
       });
 

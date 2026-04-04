@@ -24,14 +24,27 @@ function normalizeProxyList(input) {
   ];
 }
 
+function normalizeComprehensiveMode(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
 function resolveSearchParams(keyword, options = {}) {
   return {
     query: normalizeKeyword(keyword),
     proxies: normalizeProxyList(options.proxies),
+    comprehensiveMode: normalizeComprehensiveMode(options.comprehensiveMode),
   };
 }
 
 module.exports = {
+  normalizeComprehensiveMode,
   normalizeProxyList,
   normalizeKeyword,
   resolveSearchParams,
