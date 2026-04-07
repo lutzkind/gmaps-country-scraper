@@ -140,6 +140,7 @@ Normalized leads include:
 ### Job orchestration
 
 - `WORKER_POLL_MS` default `5000`
+- `RUNNING_SHARD_STALE_MS` reclaim `running` shards that stay orphaned past this timeout (default `30m`)
 - `MAX_SHARD_DEPTH` default `10`
 - `RESULT_SPLIT_THRESHOLD` default `18`
 - `MIN_SHARD_WIDTH_DEG` default `0.05`
@@ -188,6 +189,7 @@ docker run \
 
 - Large countries will still take a long time; this is a resumable batch system, not a one-shot scraper.
 - Long jobs depend on persistent storage. In Coolify, mount a writable volume to `/app/data` so SQLite state survives redeploys.
+- Orphaned `running` shards are reclaimed automatically during normal worker ticks, so a single stale claim no longer blocks job finalization until the next restart.
 - Proxy support is optional but useful for long-running country-scale jobs and repeated retries.
 - Comprehensive mode is job-specific and disables gosom fast mode while using the deeper depth setting.
 - `gosom/google-maps-scraper` behavior and blocking risk depend on your execution profile, query density, and proxy quality.

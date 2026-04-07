@@ -50,10 +50,16 @@ function arrayFromEnv(name, fallback = []) {
 }
 
 const dataDir = process.env.DATA_DIR || path.join(process.cwd(), "data");
+const port = intFromEnv("PORT", 3000);
+const workerPollMs = intFromEnv("WORKER_POLL_MS", 5000);
+const runningShardStaleMs = intFromEnv(
+  "RUNNING_SHARD_STALE_MS",
+  Math.max(workerPollMs * 24, 30 * 60 * 1000)
+);
 
 module.exports = {
   host: process.env.HOST || "0.0.0.0",
-  port: intFromEnv("PORT", 3000),
+  port,
   dataDir,
   dbPath: process.env.DB_PATH || path.join(dataDir, "gmaps-country-scraper.db"),
   exportsDir: process.env.EXPORTS_DIR || path.join(dataDir, "exports"),
@@ -64,7 +70,8 @@ module.exports = {
   nominatimUrl:
     process.env.NOMINATIM_URL ||
     "https://nominatim.openstreetmap.org/search",
-  workerPollMs: intFromEnv("WORKER_POLL_MS", 5000),
+  workerPollMs,
+  runningShardStaleMs,
   maxShardDepth: intFromEnv("MAX_SHARD_DEPTH", 10),
   retryLimit: intFromEnv("RETRY_LIMIT", 6),
   retryBaseDelayMs: intFromEnv("RETRY_BASE_DELAY_MS", 60000),
