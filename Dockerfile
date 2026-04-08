@@ -38,6 +38,7 @@ RUN apt-get update \
     libxrandr2 \
     libxrender1 \
     libxshmfence1 \
+    tini \
     xvfb \
   && rm -rf /var/lib/apt/lists/*
 
@@ -57,4 +58,5 @@ VOLUME ["/app/data"]
 
 EXPOSE 3000
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "index.js"]
