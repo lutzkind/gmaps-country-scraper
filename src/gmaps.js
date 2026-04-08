@@ -2,7 +2,7 @@ const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
-const { parseBoundingBox, bboxCenter, bboxRadiusMeters, pointInsideBBox, pointInsideGeometry, canSplitBBox } = require("./geo");
+const { parseBoundingBox, bboxCenter, bboxRadiusMeters, pointInsideBBox, pointInsideGeometry } = require("./geo");
 
 async function resolveCountry(country, config) {
   const url = new URL(config.nominatimUrl);
@@ -36,7 +36,10 @@ async function resolveCountry(country, config) {
   };
 }
 
-async function queryGoogleMaps({ job, shard, geometry, config }) {
+// exhaustive=true: paginate to GMAPS_LEAF_DEPTH and disable fast mode.
+// Used for dense leaf shards after the probe confirms high density.
+// All other queries use GMAPS_DEPTH with fast mode for speed.
+async function queryGoogleMaps({ job, shard, geometry, config, exhaustive = false }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gmaps-country-"));
   const outputPath = path.join(tempDir, "results.json");
   const inputPath = path.join(tempDir, "queries.txt");
@@ -48,20 +51,13 @@ async function queryGoogleMaps({ job, shard, geometry, config }) {
   const proxy = selectProxy(job.searchParams?.proxies || [], shard.attemptCount);
   const comprehensiveMode = Boolean(job.searchParams?.comprehensiveMode);
 
-  // A leaf shard cannot split further — either depth is maxed out or the bbox
-  // is too small to divide. Leaf shards use a higher depth so the binary
-  // paginates through all available results rather than stopping at page 1-2.
-  const isLeaf = shard.depth >= config.maxShardDepth || !canSplitBBox(shard.bbox, config);
-
   const effectiveDepth = comprehensiveMode
     ? Math.max(1, config.googleMapsComprehensiveDepth)
-    : isLeaf
+    : exhaustive
       ? Math.max(1, config.googleMapsLeafDepth)
       : Math.max(1, config.googleMapsDepth);
 
-  // Disable fast mode for leaf shards and comprehensive mode so we get the
-  // most thorough coverage at the cells where we can no longer subdivide.
-  const useFastMode = comprehensiveMode ? false : isLeaf ? false : config.googleMapsFastMode;
+  const useFastMode = comprehensiveMode ? false : exhaustive ? false : config.googleMapsFastMode;
 
   try {
     await fs.writeFile(inputPath, `${job.searchParams?.query || job.keyword}\n`, "utf8");

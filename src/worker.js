@@ -117,12 +117,27 @@ function createWorker({ store, config, nocoDb = null }) {
         return;
       }
 
-      if (
-        response.rawCount >= config.resultSplitThreshold &&
-        shard.depth < config.maxShardDepth &&
-        canSplitBBox(shard.bbox, config)
-      ) {
+      if (response.rawCount >= config.resultSplitThreshold && canSplit) {
         store.splitShard(shard.id, splitBBox(shard.bbox), shard.runToken);
+        return;
+      }
+
+      // Dense leaf shard: the probe found enough results to indicate more
+      // exist beyond page 1. Re-query exhaustively to capture all of them.
+      // Sparse leaf shards (rawCount < threshold) already have all results
+      // from the probe and skip this second query entirely.
+      if (!canSplit && response.rawCount >= config.resultSplitThreshold) {
+        const exhaustiveResponse = await queryGoogleMaps({
+          job,
+          shard,
+          geometry,
+          config,
+          exhaustive: true,
+        });
+        if (store.getJob(job.id)?.status === "canceled") {
+          return;
+        }
+        store.completeShard(shard.id, exhaustiveResponse.leads, shard.runToken);
         return;
       }
 
