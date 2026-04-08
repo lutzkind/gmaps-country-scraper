@@ -8,6 +8,7 @@ Long-running Google Maps lead scraper that accepts **country + keyword**, shards
 - starts with the country bbox and proactively splits oversized shards before querying
 - recursively splits dense shards for deeper coverage
 - runs `google-maps-scraper` against each shard using `-geo` + `-radius`
+- uses a shallow probe depth for routing shards and exhausts all pages at leaf shards
 - optionally rotates proxies across shard attempts
 - persists jobs, shards, sessions, and leads in SQLite
 - exports CSV and JSON artifacts per job
@@ -82,7 +83,9 @@ curl -L "http://localhost:3000/jobs/<job-id>/download?format=json" -o leads.json
 2. Seed one shard covering the whole country.
 3. Split large shards until each shard is geographically small enough for a focused geo/radius search.
 4. Run a Google Maps geo/radius search for the shard center.
-5. If the shard looks saturated, split it into four children and continue.
+   - **Routing shards** (can still split): use `GMAPS_DEPTH` (default `2`) — a shallow probe to detect density. Fast mode is on for speed.
+   - **Leaf shards** (at max depth or too small to divide further): use `GMAPS_LEAF_DEPTH` (default `10`) — paginates through all available results. Fast mode is off for thorough coverage.
+5. If a routing shard looks saturated, split it into four children and continue.
 6. Retry transient failures with backoff, optionally using a different proxy.
 7. Deduplicate leads by place identifiers or stable fallback keys.
 8. Finalize the job once every shard reaches a terminal state.
@@ -129,9 +132,10 @@ Normalized leads include:
 ### Google Maps execution
 
 - `GOOGLE_MAPS_BINARY` default `google-maps-scraper`
-- `GMAPS_FAST_MODE` default `true` for the faster gosom profile in normal runs
-- `GMAPS_DEPTH` default `2`
-- `GMAPS_COMPREHENSIVE_DEPTH` default `10` when a job opts into comprehensive mode
+- `GMAPS_FAST_MODE` default `true` — enables the faster gosom profile for routing shards; automatically disabled for leaf shards and comprehensive mode
+- `GMAPS_DEPTH` default `2` — pages fetched per routing shard query (shallow probe to detect density)
+- `GMAPS_LEAF_DEPTH` default `10` — pages fetched per leaf shard query (exhaustive, used when a shard can no longer be split)
+- `GMAPS_COMPREHENSIVE_DEPTH` default `10` — pages fetched in comprehensive mode (overrides both depth settings)
 - `GMAPS_CONCURRENCY` default `1`
 - `GMAPS_RADIUS_CAP_METERS` default `45000`
 - `GMAPS_TARGET_SHARD_RADIUS_METERS` default `15000`
@@ -141,7 +145,7 @@ Normalized leads include:
 
 - `WORKER_POLL_MS` default `5000`
 - `RUNNING_SHARD_STALE_MS` reclaim `running` shards that stay orphaned past this timeout (default `30m`)
-- `MAX_SHARD_DEPTH` default `10`
+- `MAX_SHARD_DEPTH` default `12` — maximum shard subdivision depth; higher values create finer grids in dense areas at the cost of more total shards
 - `RESULT_SPLIT_THRESHOLD` default `18`
 - `MIN_SHARD_WIDTH_DEG` default `0.05`
 - `MIN_SHARD_HEIGHT_DEG` default `0.05`
@@ -193,3 +197,4 @@ docker run \
 - Proxy support is optional but useful for long-running country-scale jobs and repeated retries.
 - Comprehensive mode is job-specific and disables gosom fast mode while using the deeper depth setting.
 - `gosom/google-maps-scraper` behavior and blocking risk depend on your execution profile, query density, and proxy quality.
+- Increasing `MAX_SHARD_DEPTH` beyond `12` is rarely needed but can improve coverage for extremely dense metro areas; each extra level multiplies potential leaf shards by up to 4×.
