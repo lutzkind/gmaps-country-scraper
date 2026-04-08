@@ -72,12 +72,22 @@ module.exports = {
     "https://nominatim.openstreetmap.org/search",
   workerPollMs,
   runningShardStaleMs,
-  maxShardDepth: intFromEnv("MAX_SHARD_DEPTH", 12),
+  // Maximum subdivision depth. At depth 14 the US bbox produces cells of
+  // ~1.85 km × 0.59 km (~1.1 km²), which keeps restaurant counts per cell
+  // below Google Maps' effective ~120-result cap even in Manhattan-level
+  // density (~85 restaurants/km²). Sparse cells return 0 at depth 11-12
+  // and terminate without cascading, so the cost is proportional to actual
+  // density rather than exponential across the whole country.
+  maxShardDepth: intFromEnv("MAX_SHARD_DEPTH", 14),
   retryLimit: intFromEnv("RETRY_LIMIT", 6),
   retryBaseDelayMs: intFromEnv("RETRY_BASE_DELAY_MS", 60000),
   resultSplitThreshold: intFromEnv("RESULT_SPLIT_THRESHOLD", 18),
-  minShardWidthDeg: floatFromEnv("MIN_SHARD_WIDTH_DEG", 0.05),
-  minShardHeightDeg: floatFromEnv("MIN_SHARD_HEIGHT_DEG", 0.05),
+  // Must be well below the cell width at MAX_SHARD_DEPTH to prevent
+  // canSplitBBox() from returning false before the depth limit is reached.
+  // US bbox width at depth 14 = 360/2^14 ≈ 0.022°; height ≈ 0.0053°.
+  // Using 0.002° gives safe headroom through depth 14 and beyond.
+  minShardWidthDeg: floatFromEnv("MIN_SHARD_WIDTH_DEG", 0.002),
+  minShardHeightDeg: floatFromEnv("MIN_SHARD_HEIGHT_DEG", 0.002),
   adminUsername: process.env.ADMIN_USERNAME || null,
   adminPassword: process.env.ADMIN_PASSWORD || null,
   sessionCookieName: process.env.SESSION_COOKIE_NAME || "gmaps_scraper_session",

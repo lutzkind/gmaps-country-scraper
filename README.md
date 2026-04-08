@@ -81,14 +81,29 @@ curl -L "http://localhost:3000/jobs/<job-id>/download?format=json" -o leads.json
 
 1. Resolve the country boundary and bbox with Nominatim.
 2. Seed one shard covering the whole country.
-3. Split large shards until each shard is geographically small enough for a focused geo/radius search.
+3. Pre-split large shards (radius > `GMAPS_TARGET_SHARD_RADIUS_METERS`) without querying until cells are small enough.
 4. Run a Google Maps geo/radius search for the shard center.
    - **Routing shards** (can still split): use `GMAPS_DEPTH` (default `2`) — a shallow probe to detect density. Fast mode is on for speed.
-   - **Leaf shards** (at max depth or too small to divide further): use `GMAPS_LEAF_DEPTH` (default `10`) — paginates through all available results. Fast mode is off for thorough coverage.
-5. If a routing shard looks saturated, split it into four children and continue.
+   - **Leaf shards** (at `MAX_SHARD_DEPTH` or too small to divide further): use `GMAPS_LEAF_DEPTH` (default `10`) — paginates through all available results. Fast mode is off for thorough coverage.
+5. If a routing shard returns ≥ `RESULT_SPLIT_THRESHOLD` results, split into four children and continue.
 6. Retry transient failures with backoff, optionally using a different proxy.
 7. Deduplicate leads by place identifiers or stable fallback keys.
 8. Finalize the job once every shard reaches a terminal state.
+
+### Why depth 14 and min-shard 0.002°
+
+Google Maps caps at approximately 120 results per geo query regardless of how many pages are fetched. Full coverage therefore requires cells small enough that their restaurant count stays below that cap.
+
+| Depth | US cell size at NYC | ~Restaurants/cell (Manhattan density) | Coverage |
+|-------|--------------------|-----------------------------------------|---------|
+| 10 | 29.7 × 9.4 km | ~23,700 | 0.5% |
+| 12 | 7.4 × 2.3 km | ~1,480 | 8% |
+| 13 | 3.7 × 1.2 km | ~370 | 32% |
+| **14** | **1.9 × 0.6 km** | **~93** | **100%** |
+
+`MIN_SHARD_WIDTH/HEIGHT_DEG` must be set below the cell dimensions at `MAX_SHARD_DEPTH` or `canSplitBBox()` returns false prematurely, silently capping real splitting before the depth limit is reached. At depth 14 the US bbox produces cells of ~0.022° × 0.005°; the 0.002° floor gives safe headroom.
+
+Sparse/rural cells return 0 at depth 11–12 and terminate without cascading, so the extra depth only costs real queries where density warrants it.
 
 This is designed for multi-day runs. The service can restart and resume from SQLite state.
 
@@ -145,10 +160,10 @@ Normalized leads include:
 
 - `WORKER_POLL_MS` default `5000`
 - `RUNNING_SHARD_STALE_MS` reclaim `running` shards that stay orphaned past this timeout (default `30m`)
-- `MAX_SHARD_DEPTH` default `12` — maximum shard subdivision depth; higher values create finer grids in dense areas at the cost of more total shards
+- `MAX_SHARD_DEPTH` default `14` — maximum subdivision depth; depth-14 US cells are ~1.9 km × 0.6 km (~93 restaurants/cell at Manhattan density), keeping counts below Google's ~120-result cap for full coverage even in the densest cities
 - `RESULT_SPLIT_THRESHOLD` default `18`
-- `MIN_SHARD_WIDTH_DEG` default `0.05`
-- `MIN_SHARD_HEIGHT_DEG` default `0.05`
+- `MIN_SHARD_WIDTH_DEG` default `0.002` — must be smaller than the cell width at `MAX_SHARD_DEPTH` or splitting stops prematurely
+- `MIN_SHARD_HEIGHT_DEG` default `0.002`
 - `RETRY_LIMIT` default `6`
 - `RETRY_BASE_DELAY_MS` default `60000`
 
@@ -197,4 +212,4 @@ docker run \
 - Proxy support is optional but useful for long-running country-scale jobs and repeated retries.
 - Comprehensive mode is job-specific and disables gosom fast mode while using the deeper depth setting.
 - `gosom/google-maps-scraper` behavior and blocking risk depend on your execution profile, query density, and proxy quality.
-- Increasing `MAX_SHARD_DEPTH` beyond `12` is rarely needed but can improve coverage for extremely dense metro areas; each extra level multiplies potential leaf shards by up to 4×.
+- The extra depth levels (13 and 14) only generate real queries in genuinely dense areas; sparse cells drop out at depth 11–12 with a 0-result response, keeping total runtime proportional to actual restaurant density rather than country area.
