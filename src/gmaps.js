@@ -94,7 +94,7 @@ async function queryGoogleMaps({ job, shard, geometry, config, exhaustive = fals
         ...process.env,
         HOME: process.env.HOME || "/root",
       },
-    });
+    }, config.googleMapsBinaryTimeoutMs);
 
     const parsed = await readResults(outputPath);
     const leads = parsed
@@ -123,11 +123,22 @@ function selectProxy(proxies, attemptCount) {
   return proxies[index];
 }
 
-function runBinary(command, args, options) {
+function runBinary(command, args, options, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, options);
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const timer = timeoutMs
+      ? setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            child.kill("SIGKILL");
+            reject(new Error(`google-maps-scraper timed out after ${timeoutMs}ms.`));
+          }
+        }, timeoutMs)
+      : null;
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -135,15 +146,24 @@ function runBinary(command, args, options) {
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-        return;
+    child.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        if (timer) clearTimeout(timer);
+        reject(err);
       }
-
-      const output = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
-      reject(new Error(output || `google-maps-scraper exited with code ${code}.`));
+    });
+    child.on("close", (code) => {
+      if (!settled) {
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (code === 0) {
+          resolve({ stdout, stderr });
+          return;
+        }
+        const output = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
+        reject(new Error(output || `google-maps-scraper exited with code ${code}.`));
+      }
     });
   });
 }

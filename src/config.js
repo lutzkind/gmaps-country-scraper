@@ -105,6 +105,14 @@ module.exports = {
   ),
   googleMapsExitOnInactivity:
     process.env.GMAPS_EXIT_ON_INACTIVITY || "90s",
+  // Hard kill timeout for the scraper binary. Guards against frozen processes
+  // that ignore -exit-on-inactivity and would lock the worker's busy flag.
+  // Defaults to 80% of runningShardStaleMs so the process is killed before
+  // the stale-shard reclaim window expires.
+  googleMapsBinaryTimeoutMs: intFromEnv(
+    "GMAPS_BINARY_TIMEOUT_MS",
+    Math.floor(runningShardStaleMs * 0.8)
+  ),
   nocoDb: {
     baseUrl: process.env.NOCODB_BASE_URL || null,
     apiToken: process.env.NOCODB_API_TOKEN || null,
