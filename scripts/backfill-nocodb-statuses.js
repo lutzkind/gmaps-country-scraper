@@ -19,6 +19,7 @@ function parseArgs(argv) {
     closedCsvPath: path.join(config.dataDir, 'nocodb-status-backfill.closed.csv'),
     query: 'gmaps',
     resume: true,
+    revalidateLinklessRecoveries: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -71,6 +72,9 @@ function parseArgs(argv) {
         break;
       case '--no-resume':
         options.resume = false;
+        break;
+      case '--revalidate-linkless-recoveries':
+        options.revalidateLinklessRecoveries = true;
         break;
       default:
         throw new Error(`Unknown argument: ${token}`);
@@ -200,7 +204,7 @@ function createNocoDbClient(settings) {
           where: `(Id,gt,${afterId})~and(source,eq,${settings.query})`,
           sort: 'Id',
           limit,
-          fields: 'Id,name,address,phone,maps_link,place_id,cid,business_status',
+          fields: 'Id,name,address,phone,maps_link,place_id,cid,business_status,raw_json',
         },
       });
     },
@@ -239,6 +243,16 @@ function safeJsonParse(value) {
   }
 }
 
+function cleanString(value) {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
+function getOriginalRawLink(row) {
+  const payload = safeJsonParse(row?.raw_json || '');
+  return cleanString(payload?.link);
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const checkpoint = options.resume ? loadCheckpoint(options.checkpointPath) : null;
@@ -254,6 +268,7 @@ async function main() {
     openOrUnknownCount: checkpoint?.openOrUnknownCount || 0,
     failedCount: checkpoint?.failedCount || 0,
     skippedCount: checkpoint?.skippedCount || 0,
+    clearedCount: checkpoint?.clearedCount || 0,
     totalRowsHint: checkpoint?.totalRowsHint || null,
   };
 
@@ -296,7 +311,10 @@ async function main() {
         name: row.name,
         address: row.address,
         phone: row.phone,
-        link: row.maps_link,
+        link:
+          options.revalidateLinklessRecoveries && !getOriginalRawLink(row)
+            ? ''
+            : row.maps_link,
         placeId: row.place_id,
         cid: row.cid,
       })),
@@ -321,6 +339,20 @@ async function main() {
 
       if (result.status === 'skipped') {
         state.skippedCount += 1;
+        const original = rows.find((row) => row.Id === result.leadId) || null;
+        if (
+          options.revalidateLinklessRecoveries &&
+          original &&
+          !getOriginalRawLink(original) &&
+          cleanString(original.maps_link)
+        ) {
+          updates.push({
+            Id: result.leadId,
+            business_status: '',
+            maps_link: '',
+          });
+          state.clearedCount += 1;
+        }
         continue;
       }
 
@@ -375,6 +407,7 @@ async function main() {
       `tempClosed=${state.temporarilyClosedCount}`,
       `openOrUnknown=${state.openOrUnknownCount}`,
       `failed=${state.failedCount}`,
+      `cleared=${state.clearedCount}`,
     ];
     if (state.totalRowsHint != null) {
       progressParts.push(`target=${state.totalRowsHint}`);

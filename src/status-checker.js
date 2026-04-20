@@ -118,6 +118,22 @@ async function checkLead(page, lead, timeoutMs) {
   try {
     const bodyText =
       resolved.bodyText || (await openMapsPage(page, resolved.link, timeoutMs));
+    if (resolved.resolvedBy !== "provided_link") {
+      const validation = await validateResolvedPlace(page, lead, bodyText);
+      if (!validation.ok) {
+        return {
+          leadId: lead?.id || null,
+          placeId: lead?.placeId || null,
+          cid: lead?.cid || null,
+          link: lead?.link || null,
+          status: "skipped",
+          reason: validation.reason,
+          matchedText: null,
+          checkedAt: new Date().toISOString(),
+          resolvedBy: resolved.resolvedBy,
+        };
+      }
+    }
     const detection = detectStatus(bodyText);
 
     return {
@@ -280,14 +296,218 @@ function buildSearchQueries(lead) {
 
   const address = cleanString(lead?.address);
   const phone = cleanString(lead?.phone);
-  const queries = [
-    [name, address, phone].filter(Boolean).join(" "),
-    [name, address].filter(Boolean).join(" "),
-    [name, phone].filter(Boolean).join(" "),
-    name,
-  ];
+  const queries = [];
+
+  if (address || phone) {
+    queries.push([name, address, phone].filter(Boolean).join(" "));
+    if (address) {
+      queries.push([name, address].filter(Boolean).join(" "));
+    }
+    if (phone) {
+      queries.push([name, phone].filter(Boolean).join(" "));
+    }
+  } else {
+    queries.push(name);
+  }
 
   return [...new Set(queries.map(cleanString).filter(Boolean))];
+}
+
+async function validateResolvedPlace(page, lead, bodyText) {
+  const leadName = cleanString(lead?.name);
+  if (!leadName) {
+    return { ok: false, reason: "Lead has no name to validate the resolved place." };
+  }
+
+  const details = await page.evaluate(() => {
+    const heading =
+      document.querySelector("h1")?.textContent ||
+      document.querySelector('[role="main"] h1')?.textContent ||
+      "";
+    return {
+      title: document.title || "",
+      heading: heading || "",
+      url: window.location.href || "",
+    };
+  });
+
+  const placeName = cleanString(details.heading) || extractPlaceNameFromTitle(details.title);
+  const body = normalizeForMatch(bodyText);
+  const nameCheck = evaluateNameMatch(leadName, placeName, body);
+  if (!nameCheck.ok) {
+    return { ok: false, reason: nameCheck.reason };
+  }
+
+  const corroboration = evaluateCorroboration(lead, body);
+  if (!corroboration.ok) {
+    return { ok: false, reason: corroboration.reason };
+  }
+
+  return {
+    ok: true,
+    matchedName: placeName,
+    resolvedUrl: details.url,
+  };
+}
+
+function extractPlaceNameFromTitle(title) {
+  const normalized = cleanString(title);
+  if (!normalized) {
+    return null;
+  }
+
+  const firstSegment = normalized.split(" - ").map(cleanString).find(Boolean);
+  return firstSegment || normalized;
+}
+
+function evaluateNameMatch(leadName, placeName, bodyText) {
+  const normalizedLeadName = normalizeForMatch(leadName);
+  const normalizedPlaceName = normalizeForMatch(placeName);
+
+  if (normalizedPlaceName) {
+    if (
+      normalizedPlaceName.includes(normalizedLeadName) ||
+      normalizedLeadName.includes(normalizedPlaceName)
+    ) {
+      return { ok: true };
+    }
+  }
+
+  const leadTokens = tokenizeName(leadName);
+  if (leadTokens.length === 0) {
+    return { ok: false, reason: "Resolved place name could not be validated." };
+  }
+
+  const searchableText = [normalizedPlaceName, bodyText].filter(Boolean).join(" ");
+  const matchedTokens = leadTokens.filter((token) => searchableText.includes(token));
+  const coverage = matchedTokens.length / leadTokens.length;
+
+  if (matchedTokens.length >= Math.min(2, leadTokens.length) && coverage >= 0.75) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: "Resolved Google Maps place did not match the original lead name closely enough.",
+  };
+}
+
+function evaluateCorroboration(lead, bodyText) {
+  const phone = cleanString(lead?.phone);
+  const address = cleanString(lead?.address);
+  if (!phone && !address) {
+    return {
+      ok: false,
+      reason: "Lead has no phone or address to corroborate a recovered Google Maps link.",
+    };
+  }
+
+  const checks = [];
+  if (phone) {
+    checks.push(matchPhone(phone, bodyText));
+  }
+  if (address) {
+    checks.push(matchAddress(address, bodyText));
+  }
+
+  if (checks.some((check) => check.ok)) {
+    return { ok: true };
+  }
+
+  const reason = checks.map((check) => check.reason).filter(Boolean)[0];
+  return {
+    ok: false,
+    reason: reason || "Resolved Google Maps place lacked corroborating phone/address details.",
+  };
+}
+
+function matchPhone(phone, bodyText) {
+  const digits = normalizeDigits(phone);
+  if (!digits || digits.length < 7) {
+    return { ok: false, reason: "Lead phone could not be normalized for validation." };
+  }
+
+  const bodyDigits = normalizeDigits(bodyText);
+  if (bodyDigits.includes(digits)) {
+    return { ok: true };
+  }
+
+  if (digits.length > 10 && bodyDigits.includes(digits.slice(-10))) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: "Resolved Google Maps place did not expose the expected phone number.",
+  };
+}
+
+function matchAddress(address, bodyText) {
+  const normalizedBody = normalizeForMatch(bodyText);
+  const signals = extractAddressSignals(address);
+  const matchedSignals = signals.filter((signal) => normalizedBody.includes(signal));
+
+  if (matchedSignals.length >= Math.min(2, signals.length)) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: "Resolved Google Maps place did not expose enough matching address details.",
+  };
+}
+
+function extractAddressSignals(address) {
+  const normalized = normalizeForMatch(address);
+  const parts = address
+    .split(",")
+    .map((part) => normalizeForMatch(part))
+    .filter(Boolean);
+  const streetNumber = normalized.match(/\b\d+[a-z]?\b/i)?.[0] || null;
+  const postcode =
+    normalizeForMatch(
+      address.match(/\b[A-Z0-9][A-Z0-9 -]{2,9}[A-Z0-9]\b/i)?.[0] || ""
+    ) || null;
+  const city = parts[1] || null;
+
+  return [...new Set([streetNumber, postcode, city].filter(Boolean))];
+}
+
+function tokenizeName(value) {
+  const stopWords = new Set([
+    "and",
+    "bar",
+    "cafe",
+    "co",
+    "company",
+    "food",
+    "grill",
+    "inc",
+    "llc",
+    "restaurant",
+    "the",
+  ]);
+  const normalized = normalizeForMatch(value);
+  const tokens = normalized
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !stopWords.has(token));
+  return tokens.length > 0
+    ? tokens
+    : normalized.split(/\s+/).filter((token) => token.length >= 3);
+}
+
+function normalizeForMatch(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeDigits(value) {
+  return String(value || "").replace(/\D+/g, "");
 }
 
 function normalizeMapsUrl(value) {
