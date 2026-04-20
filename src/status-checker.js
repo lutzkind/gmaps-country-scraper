@@ -82,14 +82,18 @@ function createStatusChecker({ config }) {
           leads,
           concurrency,
           async (lead) => {
-            const page = await browser.newPage();
-            page.setDefaultNavigationTimeout(timeoutMs);
-            page.setDefaultTimeout(timeoutMs);
-
             try {
-              return await checkLead(page, lead, timeoutMs);
-            } finally {
-              await page.close().catch(() => {});
+              const page = await browser.newPage();
+              page.setDefaultNavigationTimeout(timeoutMs);
+              page.setDefaultTimeout(timeoutMs);
+
+              try {
+                return await checkLead(page, lead, timeoutMs);
+              } finally {
+                await page.close().catch(() => {});
+              }
+            } catch (error) {
+              return createFailedLeadResult(lead, error);
             }
           }
         );
@@ -100,22 +104,35 @@ function createStatusChecker({ config }) {
   };
 }
 
-async function checkLead(page, lead, timeoutMs) {
-  const resolved = await resolveLead(page, lead, timeoutMs);
-  if (!resolved?.link) {
-    return {
-      leadId: lead?.id || null,
-      placeId: lead?.placeId || null,
-      cid: lead?.cid || null,
-      link: lead?.link || null,
-      status: "skipped",
-      reason: "Lead has no resolvable Google Maps place link.",
-      matchedText: null,
-      checkedAt: new Date().toISOString(),
-    };
-  }
+function createFailedLeadResult(lead, error) {
+  return {
+    leadId: lead?.id || null,
+    placeId: lead?.placeId || null,
+    cid: lead?.cid || null,
+    link: normalizeMapsUrl(lead?.link),
+    status: "failed",
+    error: error?.message || String(error),
+    matchedText: null,
+    checkedAt: new Date().toISOString(),
+  };
+}
 
+async function checkLead(page, lead, timeoutMs) {
   try {
+    const resolved = await resolveLead(page, lead, timeoutMs);
+    if (!resolved?.link) {
+      return {
+        leadId: lead?.id || null,
+        placeId: lead?.placeId || null,
+        cid: lead?.cid || null,
+        link: lead?.link || null,
+        status: "skipped",
+        reason: "Lead has no resolvable Google Maps place link.",
+        matchedText: null,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
     const bodyText =
       resolved.bodyText || (await openMapsPage(page, resolved.link, timeoutMs));
     if (resolved.resolvedBy !== "provided_link") {
@@ -152,7 +169,7 @@ async function checkLead(page, lead, timeoutMs) {
       leadId: lead?.id || null,
       placeId: lead?.placeId || null,
       cid: lead?.cid || null,
-      link: resolved.link,
+      link: normalizeMapsUrl(lead?.link),
       status: "failed",
       error: error.message,
       matchedText: null,

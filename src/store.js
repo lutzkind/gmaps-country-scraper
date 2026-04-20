@@ -14,6 +14,8 @@ function createStore(config) {
 
   const db = new Database(config.dbPath);
   db.pragma("journal_mode = WAL");
+  db.pragma("wal_autocheckpoint = 200");
+  db.pragma("journal_size_limit = 67108864");
   db.pragma("foreign_keys = ON");
 
   db.exec(`
@@ -59,6 +61,15 @@ function createStore(config) {
     CREATE INDEX IF NOT EXISTS idx_shards_status_next_run
       ON shards(status, next_run_at);
 
+    CREATE INDEX IF NOT EXISTS idx_shards_job_id
+      ON shards(job_id);
+
+    CREATE INDEX IF NOT EXISTS idx_shards_job_id_status
+      ON shards(job_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_shards_status_updated_at
+      ON shards(status, updated_at);
+
     CREATE TABLE IF NOT EXISTS leads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       job_id TEXT NOT NULL,
@@ -95,6 +106,9 @@ function createStore(config) {
       UNIQUE(job_id, dedupe_key),
       FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
     );
+
+    CREATE INDEX IF NOT EXISTS idx_leads_job_id_id
+      ON leads(job_id, id);
 
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
