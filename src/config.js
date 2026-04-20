@@ -125,11 +125,6 @@ module.exports = {
   autoStatusBackfillBatchSize: intFromEnv("AUTO_STATUS_BACKFILL_BATCH_SIZE", 50),
   statusCheckTimeoutMs: intFromEnv("STATUS_CHECK_TIMEOUT_MS", 45000),
   statusCheckConcurrency: intFromEnv("STATUS_CHECK_CONCURRENCY", 2),
-  crawl4aiBaseUrl: process.env.CRAWL4AI_BASE_URL || null,
-  crawl4aiBearerToken: process.env.CRAWL4AI_BEARER_TOKEN || null,
-  emailEnrichmentTimeoutMs: intFromEnv("EMAIL_ENRICHMENT_TIMEOUT_MS", 20000),
-  emailEnrichmentMaxPages: intFromEnv("EMAIL_ENRICHMENT_MAX_PAGES", 6),
-  emailEnrichmentConcurrency: intFromEnv("EMAIL_ENRICHMENT_CONCURRENCY", 2),
   nocoDb: {
     baseUrl: process.env.NOCODB_BASE_URL || null,
     apiToken: process.env.NOCODB_API_TOKEN || null,

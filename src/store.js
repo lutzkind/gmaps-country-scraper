@@ -75,8 +75,6 @@ function createStore(config) {
       email TEXT,
       emails_json TEXT NOT NULL DEFAULT '[]',
       email_source TEXT,
-      contact_page_url TEXT,
-      social_links_json TEXT NOT NULL DEFAULT '{}',
       address TEXT,
       complete_address_json TEXT NOT NULL,
       city TEXT,
@@ -131,8 +129,6 @@ function createStore(config) {
   ensureLeadColumns(db, "leads", [
     ["emails_json", "TEXT NOT NULL DEFAULT '[]'"],
     ["email_source", "TEXT"],
-    ["contact_page_url", "TEXT"],
-    ["social_links_json", "TEXT NOT NULL DEFAULT '{}'"],
     ["city", "TEXT"],
     ["area", "TEXT"],
     ["state_region", "TEXT"],
@@ -266,32 +262,6 @@ function createStore(config) {
         )
         .all(jobId, limit, offset)
         .map(deserializeLeadRow);
-    },
-
-    getEmailEnrichmentTargets(
-      jobId,
-      { limit = 25, offset = 0, onlyMissingEmail = true } = {}
-    ) {
-      const params = [jobId];
-      let query = `
-        SELECT *
-        FROM leads
-        WHERE job_id = ?
-          AND COALESCE(website, '') != ''
-      `;
-
-      if (onlyMissingEmail) {
-        query += " AND COALESCE(email, '') = ''";
-      }
-
-      query += `
-        ORDER BY id ASC
-        LIMIT ?
-        OFFSET ?
-      `;
-
-      params.push(limit, offset);
-      return db.prepare(query).all(...params).map(deserializeLeadRow);
     },
 
     getStatusCheckTargets(
@@ -442,7 +412,7 @@ function createStore(config) {
               SUM(CASE WHEN COALESCE(website, '') != '' THEN 1 ELSE 0 END) AS leads_with_website,
               SUM(CASE WHEN COALESCE(email, '') != '' THEN 1 ELSE 0 END) AS leads_with_email,
               SUM(CASE WHEN COALESCE(phone, '') != '' THEN 1 ELSE 0 END) AS leads_with_phone,
-              SUM(CASE WHEN COALESCE(contact_page_url, '') != '' THEN 1 ELSE 0 END) AS leads_with_contact_page
+              0 AS leads_with_contact_page
             FROM leads
             WHERE job_id = ?
           `
@@ -1398,60 +1368,6 @@ function createStore(config) {
       });
     },
 
-    updateLeadContactFields(leadId, input = {}) {
-      const row = db
-        .prepare(
-          `
-            SELECT id, email, emails_json, email_source, contact_page_url, social_links_json
-            FROM leads
-            WHERE id = ?
-          `
-        )
-        .get(leadId);
-
-      if (!row) {
-        return null;
-      }
-
-      const mergedEmails = mergeStringArrays([
-        row.email,
-        ...(safeJsonParse(row.emails_json) || []),
-        ...(Array.isArray(input.emails) ? input.emails : []),
-      ]);
-      const primaryEmail = cleanString(row.email) || mergedEmails[0] || null;
-      const socialLinks = {
-        ...normalizeStringObject(safeJsonParse(row.social_links_json) || {}),
-        ...normalizeStringObject(input.socialLinks || {}),
-      };
-
-      db.prepare(
-        `
-          UPDATE leads
-          SET email = @email,
-              emails_json = @emailsJson,
-              email_source = @emailSource,
-              contact_page_url = @contactPageUrl,
-              social_links_json = @socialLinksJson,
-              updated_at = @timestamp
-          WHERE id = @id
-        `
-      ).run({
-        id: leadId,
-        email: primaryEmail,
-        emailsJson: JSON.stringify(mergedEmails),
-        emailSource:
-          cleanString(row.email_source) ||
-          cleanString(input.emailSource) ||
-          (primaryEmail ? "website_crawl" : null),
-        contactPageUrl:
-          cleanString(row.contact_page_url) || cleanString(input.contactPageUrl),
-        socialLinksJson: JSON.stringify(socialLinks),
-        timestamp: nowIso(),
-      });
-
-      return this.getLeadById(leadId);
-    },
-
     updateLeadStatusRecovery(leadId, input = {}) {
       const row = db
         .prepare(
@@ -1627,62 +1543,6 @@ function backfillLeadLocations(db) {
   })();
 }
 
-function backfillLeadContactFields(db) {
-  const rows = db
-    .prepare(
-      `
-        SELECT id, raw_json, email, emails_json, email_source, social_links_json
-        FROM leads
-        WHERE COALESCE(emails_json, '') = ''
-           OR COALESCE(email_source, '') = ''
-           OR COALESCE(social_links_json, '') = ''
-      `
-    )
-    .all();
-
-  if (!rows.length) {
-    return;
-  }
-
-  const update = db.prepare(
-    `
-      UPDATE leads
-      SET emails_json = CASE
-            WHEN COALESCE(emails_json, '') = '' THEN @emailsJson
-            ELSE emails_json
-          END,
-          email_source = CASE
-            WHEN COALESCE(email_source, '') = '' THEN @emailSource
-            ELSE email_source
-          END,
-          social_links_json = CASE
-            WHEN COALESCE(social_links_json, '') = '' THEN @socialLinksJson
-            ELSE social_links_json
-          END
-      WHERE id = @id
-    `
-  );
-
-  db.transaction(() => {
-    for (const row of rows) {
-      const raw = safeJsonParse(row.raw_json) || {};
-      const mergedEmails = mergeStringArrays([
-        row.email,
-        ...(Array.isArray(raw.emails) ? raw.emails : []),
-      ]);
-      update.run({
-        id: row.id,
-        emailsJson: JSON.stringify(mergedEmails),
-        emailSource:
-          cleanString(row.email) || mergedEmails.length > 0
-            ? "gmaps_profile"
-            : null,
-        socialLinksJson: "{}",
-      });
-    }
-  })();
-}
-
 function safeJsonParse(value) {
   try {
     return value ? JSON.parse(value) : null;
@@ -1756,8 +1616,6 @@ function deserializeLeadRow(row) {
     email: row.email,
     emails: safeJsonParse(row.emails_json) || [],
     emailSource: row.email_source,
-    contactPageUrl: row.contact_page_url,
-    socialLinks: normalizeStringObject(safeJsonParse(row.social_links_json) || {}),
     address: row.address,
     completeAddress: JSON.parse(row.complete_address_json),
     city: row.city,
@@ -1800,14 +1658,6 @@ function mergeStringArrays(values) {
         .filter(Boolean)
     ),
   ];
-}
-
-function normalizeStringObject(value) {
-  return Object.fromEntries(
-    Object.entries(value && typeof value === "object" ? value : {})
-      .map(([key, entryValue]) => [cleanString(key), cleanString(entryValue)])
-      .filter(([key, entryValue]) => key && entryValue)
-  );
 }
 
 function cleanString(value) {

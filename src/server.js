@@ -4,7 +4,6 @@ const { resolveSearchParams } = require("./keywords");
 const { createJobId } = require("./worker");
 const { createAuth } = require("./auth");
 const { writeArtifacts } = require("./exporters");
-const { createEmailEnricher } = require("./email-enricher");
 const { createStatusChecker } = require("./status-checker");
 
 function createApp({ store, config, nocoDb }) {
@@ -193,66 +192,6 @@ function createApp({ store, config, nocoDb }) {
     });
   });
 
-  app.post("/jobs/:jobId/enrich-emails", async (req, res, next) => {
-    const job = store.getJob(req.params.jobId);
-    if (!job) {
-      return res.status(404).json({ error: "Job not found." });
-    }
-
-    try {
-      const runtimeConfig = resolveEmailRuntimeConfig(config, req.body || {});
-      const emailEnricher = createEmailEnricher({ config: runtimeConfig });
-      if (!emailEnricher.isConfigured()) {
-        return res.status(400).json({
-          error:
-            "Crawl4AI is not configured. Set CRAWL4AI_BASE_URL / CRAWL4AI_BEARER_TOKEN or pass crawl4aiBaseUrl / crawl4aiBearerToken in the request body.",
-        });
-      }
-
-      const limit = clampInt(req.body?.limit, 25, 1, 250);
-      const offset = clampInt(req.body?.offset, 0, 0, 1000000);
-      const onlyMissingEmail = req.body?.onlyMissingEmail !== false;
-      const targets = store.getEmailEnrichmentTargets(job.id, {
-        limit,
-        offset,
-        onlyMissingEmail,
-      });
-      const results = await runWithConcurrency(
-        targets,
-        runtimeConfig.emailEnrichmentConcurrency,
-        async (lead) => {
-          const result = await emailEnricher.enrichLead(lead, req.body || {});
-          if (
-            result.primaryEmail ||
-            (Array.isArray(result.emails) && result.emails.length > 0) ||
-            Object.keys(result.socialLinks || {}).length > 0
-          ) {
-            store.updateLeadContactFields(lead.id, result);
-          }
-          return sanitizeEmailResult(result);
-        }
-      );
-
-      const summary = summarizeEmailResults(results);
-      const artifacts = writeArtifacts(store, config, job.id);
-      store.updateJobArtifacts(job.id, artifacts);
-
-      return res.json({
-        jobId: job.id,
-        onlyMissingEmail,
-        limit,
-        offset,
-        processed: results.length,
-        summary,
-        results,
-        stats: store.getJobStats(job.id),
-        links: buildLinks(req, config, job.id),
-      });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
   app.post("/jobs/:jobId/backfill-statuses", async (req, res, next) => {
     const job = store.getJob(req.params.jobId);
     if (!job) {
@@ -437,36 +376,6 @@ function createApp({ store, config, nocoDb }) {
     return res.download(filePath);
   });
 
-  app.post("/tools/email-scrape", async (req, res, next) => {
-    try {
-      const urls = collectUrlInputs(req.body || {});
-      if (urls.length === 0) {
-        return res.status(400).json({
-          error: "Provide urls, domains, or text containing domains/URLs.",
-        });
-      }
-
-      const runtimeConfig = resolveEmailRuntimeConfig(config, req.body || {});
-      const emailEnricher = createEmailEnricher({ config: runtimeConfig });
-      if (!emailEnricher.isConfigured()) {
-        return res.status(400).json({
-          error:
-            "Crawl4AI is not configured. Set CRAWL4AI_BASE_URL / CRAWL4AI_BEARER_TOKEN or pass crawl4aiBaseUrl / crawl4aiBearerToken in the request body.",
-        });
-      }
-
-      const results = await emailEnricher.scrapeUrls(urls, req.body || {});
-      const sanitized = results.map(sanitizeEmailResult);
-      return res.json({
-        count: sanitized.length,
-        summary: summarizeEmailResults(sanitized),
-        results: sanitized,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
   app.use((error, _req, res, _next) => {
     const statusCode = error.statusCode || 500;
     res.status(statusCode).json({
@@ -492,7 +401,6 @@ function buildLinks(req, config, jobId) {
     shards: `${baseUrl}/jobs/${jobId}/shards`,
     errors: `${baseUrl}/jobs/${jobId}/errors`,
     leads: `${baseUrl}/jobs/${jobId}/leads`,
-    enrichEmails: `${baseUrl}/jobs/${jobId}/enrich-emails`,
     backfillStatuses: `${baseUrl}/jobs/${jobId}/backfill-statuses`,
     csv: `${baseUrl}/jobs/${jobId}/download?format=csv`,
     json: `${baseUrl}/jobs/${jobId}/download?format=json`,
@@ -524,53 +432,6 @@ function resolveStatusRuntimeConfig(config, body) {
   };
 }
 
-function resolveEmailRuntimeConfig(config, body) {
-  return {
-    ...config,
-    crawl4aiBaseUrl: cleanString(body.crawl4aiBaseUrl) || config.crawl4aiBaseUrl,
-    crawl4aiBearerToken:
-      cleanString(body.crawl4aiBearerToken) || config.crawl4aiBearerToken,
-    emailEnrichmentTimeoutMs: clampInt(
-      body.timeoutMs,
-      config.emailEnrichmentTimeoutMs,
-      1000,
-      120000
-    ),
-    emailEnrichmentMaxPages: clampInt(
-      body.maxPagesPerSite,
-      config.emailEnrichmentMaxPages,
-      1,
-      20
-    ),
-    emailEnrichmentConcurrency: clampInt(
-      body.concurrency,
-      config.emailEnrichmentConcurrency,
-      1,
-      10
-    ),
-  };
-}
-
-function collectUrlInputs(body) {
-  return [
-    ...new Set(
-      []
-        .concat(body.urls || [])
-        .concat(body.domains || [])
-        .concat(splitLines(body.text))
-        .map((value) => cleanString(value))
-        .filter(Boolean)
-    ),
-  ];
-}
-
-function splitLines(value) {
-  return String(value || "")
-    .split(/\r?\n|,|;/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 async function runWithConcurrency(items, concurrency, worker) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -593,45 +454,11 @@ async function runWithConcurrency(items, concurrency, worker) {
   return results;
 }
 
-function summarizeEmailResults(results) {
-  return results.reduce(
-    (summary, result) => {
-      summary[result.status] = (summary[result.status] || 0) + 1;
-      if (result.primaryEmail) {
-        summary.withPrimaryEmail += 1;
-      }
-      if (Array.isArray(result.emails)) {
-        summary.totalEmails += result.emails.length;
-      }
-      return summary;
-    },
-    { withPrimaryEmail: 0, totalEmails: 0 }
-  );
-}
-
 function summarizeStatusResults(results) {
   return results.reduce((summary, result) => {
     summary[result.status] = (summary[result.status] || 0) + 1;
     return summary;
   }, {});
-}
-
-function sanitizeEmailResult(result) {
-  return {
-    leadId: result.leadId || null,
-    input: result.input || null,
-    website: result.website || null,
-    status: result.status,
-    reason: result.reason || null,
-    error: result.error || null,
-    primaryEmail: result.primaryEmail || null,
-    emails: Array.isArray(result.emails) ? result.emails : [],
-    emailSource: result.emailSource || null,
-    contactPageUrl: result.contactPageUrl || null,
-    socialLinks: result.socialLinks || {},
-    crawledUrls: Array.isArray(result.crawledUrls) ? result.crawledUrls : [],
-    pageCount: result.pageCount || 0,
-  };
 }
 
 function clampInt(value, fallback, min, max) {

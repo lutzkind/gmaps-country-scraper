@@ -13,7 +13,6 @@ Long-running Google Maps lead scraper that accepts **country + keyword**, shards
 - persists jobs, shards, sessions, and leads in SQLite
 - exports CSV and JSON artifacts per job
 - syncs normalized Google Maps leads into NocoDB
-- can enrich lead websites with Crawl4AI to discover extra emails, contact pages, and social profiles
 
 ## Dashboard
 
@@ -56,14 +55,6 @@ curl -X POST http://localhost:3000/jobs/<job-id>/backfill-statuses \
     "onlyMissingStatus": true,
     "concurrency": 2
   }'
-curl -X POST http://localhost:3000/jobs/<job-id>/enrich-emails \
-  -H "Content-Type: application/json" \
-  -d '{
-    "limit": 25,
-    "onlyMissingEmail": true,
-    "crawl4aiBaseUrl": "https://crawl4ai.luxeillum.com",
-    "crawl4aiBearerToken": "<bearer-token>"
-  }'
 ```
 
 ### Cancel a job
@@ -93,19 +84,6 @@ curl -L "http://localhost:3000/jobs/<job-id>/download?format=csv" -o leads.csv
 curl -L "http://localhost:3000/jobs/<job-id>/download?format=json" -o leads.json
 ```
 
-### Scrape emails from a domain list
-
-```bash
-curl -X POST http://localhost:3000/tools/email-scrape \
-  -H "Content-Type: application/json" \
-  -d '{
-    "urls": ["example.com", "https://example.org/contact"],
-    "crawl4aiBaseUrl": "https://crawl4ai.luxeillum.com",
-    "crawl4aiBearerToken": "<bearer-token>",
-    "maxPagesPerSite": 6
-  }'
-```
-
 ### Recover permanently closed status in existing CSV exports
 
 ```bash
@@ -123,7 +101,7 @@ This writes two files next to the source CSV:
 npm run backfill-nocodb-statuses
 ```
 
-This walks the configured NocoDB table, selects `source=gmaps` rows with a saved `maps_link`, revisits the Google Maps place page, and writes `business_status` back into NocoDB.
+This walks the configured NocoDB table, selects `source=gmaps` rows with enough lead data to resolve a place page, revisits the Google Maps place page, and writes `maps_link` plus `business_status` back into NocoDB.
 
 Artifacts are written under `data/` by default:
 
@@ -177,7 +155,7 @@ Normalized leads include:
 - `placeId`, `cid`, `dataId`, `link`
 - `name`, `category`, `categories`
 - `website`, `phone`, `email`
-- `emails`, `emailSource`, `contactPageUrl`, `socialLinks`
+- `emails`, `emailSource`
 - `address`, `completeAddress`
 - `city`, `area`, `stateRegion`, `postcode`, `country`
 - `lat`, `lon`
@@ -223,14 +201,6 @@ Normalized leads include:
 - `STATUS_CHECK_TIMEOUT_MS` default `45000`
 - `STATUS_CHECK_CONCURRENCY` default `2`
 
-### Crawl4AI email enrichment
-
-- `CRAWL4AI_BASE_URL` optional default Crawl4AI endpoint for `/tools/email-scrape` and `/jobs/<id>/enrich-emails`
-- `CRAWL4AI_BEARER_TOKEN` optional Bearer token for secured Crawl4AI deployments
-- `EMAIL_ENRICHMENT_TIMEOUT_MS` default `20000`
-- `EMAIL_ENRICHMENT_MAX_PAGES` default `6`
-- `EMAIL_ENRICHMENT_CONCURRENCY` default `2`
-
 ### Job orchestration
 
 - `WORKER_POLL_MS` default `5000`
@@ -252,7 +222,7 @@ Normalized leads include:
 - `NOCODB_AUTO_SYNC_INTERVAL_MINUTES` sync new leads to NocoDB every N minutes while a job is running (default `30`, `0` disables)
 - `NOCODB_AUTO_CREATE_COLUMNS`
 
-The default synced schema already includes website, phone, email, all discovered emails, email source, contact page URL, social link JSON, address, city/area/state/postcode fields, reviews, and `raw_json` for full source payload retention.
+The default synced schema already includes website, phone, email, all discovered emails, email source, address, city/area/state/postcode fields, reviews, and `raw_json` for full source payload retention.
 
 ## Local run
 
