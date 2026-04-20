@@ -7,6 +7,7 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    chromium \
     curl \
     fonts-liberation \
     libasound2 \
@@ -51,6 +52,7 @@ COPY . .
 
 ENV HOST=0.0.0.0
 ENV PORT=3000
+ENV GOOGLE_CHROME_PATH=/usr/bin/chromium
 
 RUN mkdir -p /app/data /app/data/exports
 VOLUME ["/app/data"]

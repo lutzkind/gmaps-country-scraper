@@ -87,6 +87,18 @@ module.exports = {
   ),
   googleMapsExitOnInactivity:
     process.env.GMAPS_EXIT_ON_INACTIVITY || "90s",
+  statusCheckBrowserPath:
+    process.env.STATUS_CHECK_BROWSER_PATH ||
+    process.env.GOOGLE_CHROME_PATH ||
+    process.env.CHROME_EXECUTABLE_PATH ||
+    null,
+  statusCheckTimeoutMs: intFromEnv("STATUS_CHECK_TIMEOUT_MS", 45000),
+  statusCheckConcurrency: intFromEnv("STATUS_CHECK_CONCURRENCY", 2),
+  crawl4aiBaseUrl: process.env.CRAWL4AI_BASE_URL || null,
+  crawl4aiBearerToken: process.env.CRAWL4AI_BEARER_TOKEN || null,
+  emailEnrichmentTimeoutMs: intFromEnv("EMAIL_ENRICHMENT_TIMEOUT_MS", 20000),
+  emailEnrichmentMaxPages: intFromEnv("EMAIL_ENRICHMENT_MAX_PAGES", 6),
+  emailEnrichmentConcurrency: intFromEnv("EMAIL_ENRICHMENT_CONCURRENCY", 2),
   nocoDb: {
     baseUrl: process.env.NOCODB_BASE_URL || null,
     apiToken: process.env.NOCODB_API_TOKEN || null,
