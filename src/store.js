@@ -140,8 +140,6 @@ function createStore(config) {
     ["country", "TEXT"],
   ]);
   ensureLeadColumns(db, "shards", [["run_token", "TEXT"]]);
-  backfillLeadContactFields(db);
-  backfillLeadLocations(db);
 
   resetRunningShards(db);
   cleanupExpiredSessions(db);
