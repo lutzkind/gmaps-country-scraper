@@ -40,6 +40,7 @@ RUN apt-get update \
     libxrender1 \
     libxshmfence1 \
     tini \
+    wget \
     xvfb \
   && rm -rf /var/lib/apt/lists/*
 
