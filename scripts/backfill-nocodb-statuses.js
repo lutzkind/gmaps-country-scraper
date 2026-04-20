@@ -197,10 +197,10 @@ function createNocoDbClient(settings) {
     async listTargets({ afterId, limit }) {
       return request('/api/v2/tables/' + encodeURIComponent(settings.tableId) + '/records', {
         searchParams: {
-          where: `(Id,gt,${afterId})~and(source,eq,${settings.query})~and(maps_link,like,google.com/maps)`,
+          where: `(Id,gt,${afterId})~and(source,eq,${settings.query})`,
           sort: 'Id',
           limit,
-          fields: 'Id,name,maps_link,place_id,cid,business_status',
+          fields: 'Id,name,address,phone,maps_link,place_id,cid,business_status',
         },
       });
     },
@@ -294,6 +294,8 @@ async function main() {
       rows.map((row) => ({
         id: row.Id,
         name: row.name,
+        address: row.address,
+        phone: row.phone,
         link: row.maps_link,
         placeId: row.place_id,
         cid: row.cid,
@@ -333,6 +335,7 @@ async function main() {
       updates.push({
         Id: result.leadId,
         business_status: result.status,
+        maps_link: result.link || (rows.find((row) => row.Id === result.leadId)?.maps_link ?? ''),
       });
 
       if (result.status === 'permanently_closed' || result.status === 'temporarily_closed') {

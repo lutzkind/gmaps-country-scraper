@@ -118,6 +118,11 @@ module.exports = {
     process.env.GOOGLE_CHROME_PATH ||
     process.env.CHROME_EXECUTABLE_PATH ||
     null,
+  autoStatusBackfillOnCompletion: boolFromEnv(
+    "AUTO_STATUS_BACKFILL_ON_COMPLETION",
+    true
+  ),
+  autoStatusBackfillBatchSize: intFromEnv("AUTO_STATUS_BACKFILL_BATCH_SIZE", 50),
   statusCheckTimeoutMs: intFromEnv("STATUS_CHECK_TIMEOUT_MS", 45000),
   statusCheckConcurrency: intFromEnv("STATUS_CHECK_CONCURRENCY", 2),
   crawl4aiBaseUrl: process.env.CRAWL4AI_BASE_URL || null,

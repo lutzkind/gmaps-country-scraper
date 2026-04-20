@@ -101,57 +101,126 @@ function createStatusChecker({ config }) {
 }
 
 async function checkLead(page, lead, timeoutMs) {
-  const link = normalizeMapsUrl(lead?.link);
-  if (!link) {
+  const resolved = await resolveLead(page, lead, timeoutMs);
+  if (!resolved?.link) {
     return {
       leadId: lead?.id || null,
       placeId: lead?.placeId || null,
       cid: lead?.cid || null,
       link: lead?.link || null,
       status: "skipped",
-      reason: "Lead has no Google Maps place link.",
+      reason: "Lead has no resolvable Google Maps place link.",
       matchedText: null,
       checkedAt: new Date().toISOString(),
     };
   }
 
   try {
-    await page.goto(link, {
-      waitUntil: "domcontentloaded",
-      timeout: timeoutMs,
-    });
-
-    await acceptConsentIfPresent(page);
-    await page.waitForFunction(() => document.body && document.body.innerText.length > 0, {
-      timeout: Math.min(timeoutMs, 10000),
-    }).catch(() => {});
-    await delay(750);
-
-    const bodyText = await page.evaluate(() => document.body?.innerText || "");
+    const bodyText =
+      resolved.bodyText || (await openMapsPage(page, resolved.link, timeoutMs));
     const detection = detectStatus(bodyText);
 
     return {
       leadId: lead?.id || null,
       placeId: lead?.placeId || null,
       cid: lead?.cid || null,
-      link,
+      link: resolved.link,
       status: detection.status,
       matchedText: detection.matchedText,
       checkedAt: new Date().toISOString(),
       reason: detection.status === "open_or_unknown" ? "No closure banner detected." : null,
+      resolvedBy: resolved.resolvedBy,
     };
   } catch (error) {
     return {
       leadId: lead?.id || null,
       placeId: lead?.placeId || null,
       cid: lead?.cid || null,
-      link,
+      link: resolved.link,
       status: "failed",
       error: error.message,
       matchedText: null,
       checkedAt: new Date().toISOString(),
     };
   }
+}
+
+async function resolveLead(page, lead, timeoutMs) {
+  const directLink = normalizeMapsUrl(lead?.link);
+  if (directLink) {
+    return {
+      link: directLink,
+      resolvedBy: "provided_link",
+      bodyText: null,
+    };
+  }
+
+  for (const query of buildSearchQueries(lead)) {
+    const searchUrl = new URL("https://www.google.com/maps/search/");
+    searchUrl.searchParams.set("api", "1");
+    searchUrl.searchParams.set("query", query);
+    searchUrl.searchParams.set("hl", "en");
+    searchUrl.searchParams.set("authuser", "0");
+
+    const bodyText = await openMapsPage(page, searchUrl.toString(), timeoutMs);
+    const directResult = normalizeMapsUrl(page.url());
+    if (isPlaceUrl(directResult)) {
+      return {
+        link: directResult,
+        resolvedBy: "maps_search_redirect",
+        bodyText,
+      };
+    }
+
+    const candidate = await extractCandidatePlaceUrl(page);
+    if (candidate) {
+      return {
+        link: candidate,
+        resolvedBy: "maps_search_result",
+        bodyText: null,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function openMapsPage(page, url, timeoutMs) {
+  await page.goto(url, {
+    waitUntil: "domcontentloaded",
+    timeout: timeoutMs,
+  });
+
+  await acceptConsentIfPresent(page);
+  await page.waitForFunction(() => document.body && document.body.innerText.length > 0, {
+    timeout: Math.min(timeoutMs, 10000),
+  }).catch(() => {});
+  await delay(750);
+  return page.evaluate(() => document.body?.innerText || "");
+}
+
+async function extractCandidatePlaceUrl(page) {
+  const href = await page.evaluate(() => {
+    const selectors = [
+      'a[href*="/maps/place/"]',
+      'a[href*="google.com/maps/place/"]',
+      'a[href*="/maps?cid="]',
+    ];
+
+    for (const selector of selectors) {
+      const matches = Array.from(document.querySelectorAll(selector))
+        .map((anchor) => anchor.href || anchor.getAttribute("href") || "")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (matches.length > 0) {
+        return matches[0];
+      }
+    }
+
+    return null;
+  });
+
+  return normalizeMapsUrl(href);
 }
 
 async function acceptConsentIfPresent(page) {
@@ -203,6 +272,24 @@ function detectStatus(text) {
   };
 }
 
+function buildSearchQueries(lead) {
+  const name = cleanString(lead?.name);
+  if (!name) {
+    return [];
+  }
+
+  const address = cleanString(lead?.address);
+  const phone = cleanString(lead?.phone);
+  const queries = [
+    [name, address, phone].filter(Boolean).join(" "),
+    [name, address].filter(Boolean).join(" "),
+    [name, phone].filter(Boolean).join(" "),
+    name,
+  ];
+
+  return [...new Set(queries.map(cleanString).filter(Boolean))];
+}
+
 function normalizeMapsUrl(value) {
   const raw = cleanString(value);
   if (!raw) {
@@ -226,6 +313,11 @@ function normalizeMapsUrl(value) {
   } catch {
     return null;
   }
+}
+
+function isPlaceUrl(value) {
+  const url = cleanString(value);
+  return Boolean(url && /\/maps\/place\//.test(url));
 }
 
 function resolveBrowserPath(config) {
@@ -277,7 +369,9 @@ function delay(ms) {
 }
 
 module.exports = {
+  buildSearchQueries,
   createStatusChecker,
   detectStatus,
+  isPlaceUrl,
   normalizeMapsUrl,
 };

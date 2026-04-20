@@ -305,11 +305,21 @@ function createStore(config) {
         SELECT *
         FROM leads
         WHERE job_id = ?
-          AND COALESCE(link, '') != ''
+          AND (
+            COALESCE(link, '') != ''
+            OR COALESCE(name, '') != ''
+            OR COALESCE(address, '') != ''
+            OR COALESCE(phone, '') != ''
+          )
       `;
 
       if (onlyMissingStatus) {
-        query += " AND COALESCE(business_status, '') = ''";
+        query += `
+          AND (
+            COALESCE(business_status, '') = ''
+            OR COALESCE(link, '') = ''
+          )
+        `;
       }
 
       query += `
@@ -1444,17 +1454,37 @@ function createStore(config) {
       return this.getLeadById(leadId);
     },
 
-    updateLeadBusinessStatus(leadId, status) {
+    updateLeadStatusRecovery(leadId, input = {}) {
+      const row = db
+        .prepare(
+          `
+            SELECT id, link, business_status
+            FROM leads
+            WHERE id = ?
+          `
+        )
+        .get(leadId);
+
+      if (!row) {
+        return null;
+      }
+
+      const nextLink = cleanString(row.link) || cleanString(input.link);
+      const nextStatus =
+        cleanString(row.business_status) || cleanString(input.status);
+
       db.prepare(
         `
           UPDATE leads
-          SET business_status = @status,
+          SET link = @link,
+              business_status = @status,
               updated_at = @timestamp
           WHERE id = @id
         `
       ).run({
         id: leadId,
-        status: cleanString(status),
+        link: nextLink,
+        status: nextStatus,
         timestamp: nowIso(),
       });
 

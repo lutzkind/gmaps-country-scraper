@@ -281,7 +281,10 @@ function createApp({ store, config, nocoDb }) {
 
       for (const result of results) {
         if (result.leadId && !["failed", "skipped"].includes(result.status)) {
-          store.updateLeadBusinessStatus(result.leadId, result.status);
+          store.updateLeadStatusRecovery(result.leadId, {
+            status: result.status,
+            link: result.link,
+          });
         }
       }
 
