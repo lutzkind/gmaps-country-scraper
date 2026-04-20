@@ -267,8 +267,7 @@
             <input id="country" name="country" placeholder="Country, e.g. United States" required>
             <input id="keyword" name="keyword" placeholder="Keyword, e.g. hotels or restaurants" required>
             <textarea id="proxies" name="proxies" placeholder="Optional proxies, one per line or comma-separated"></textarea>
-            <label class="inline-option"><input id="comprehensive-mode" type="checkbox"> Comprehensive mode (slower, deeper coverage for special runs)</label>
-            <div class="subtle">Standard mode uses the faster gosom profile for better speed/lead quality in normal runs. Turn on comprehensive mode only when you explicitly want broader country coverage and are willing to trade speed for depth. For broader hospitality coverage, run separate jobs for terms such as <code>hotel</code>, <code>hostel</code>, <code>resort</code>, and <code>inn</code>.</div>
+            <div class="subtle">Standard runs use the faster gosom profile for routing shards, then automatically re-query dense leaf shards exhaustively when deeper coverage is needed. For broader hospitality coverage, run separate jobs for terms such as <code>hotel</code>, <code>hostel</code>, <code>resort</code>, and <code>inn</code>.</div>
             <button type="submit">Start scrape job</button>
           </form>
           <div id="create-job-message" class="message"></div>
@@ -432,7 +431,6 @@
         nocodbAutoCreateColumns: document.getElementById("nocodb-auto-create-columns"),
         nocodbTestButton: document.getElementById("nocodb-test-button"),
         nocodbMessage: document.getElementById("nocodb-message"),
-        comprehensiveMode: document.getElementById("comprehensive-mode"),
         proxies: document.getElementById("proxies"),
         jobList: document.getElementById("job-list"),
         refreshJobs: document.getElementById("refresh-jobs"),
@@ -769,7 +767,6 @@
               body: JSON.stringify({
                 country: document.getElementById("country").value,
                 keyword: document.getElementById("keyword").value,
-                comprehensiveMode: els.comprehensiveMode.checked,
                 proxies: els.proxies.value,
               }),
             });
@@ -779,7 +776,6 @@
           els.createJobMessage.classList.remove("error");
             document.getElementById("country").value = "";
             document.getElementById("keyword").value = "";
-            els.comprehensiveMode.checked = false;
             els.proxies.value = "";
             await fullRefresh();
         } catch (error) {

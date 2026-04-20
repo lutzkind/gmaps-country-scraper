@@ -13,6 +13,7 @@ Long-running Google Maps lead scraper that accepts **country + keyword**, shards
 - persists jobs, shards, sessions, and leads in SQLite
 - exports CSV and JSON artifacts per job
 - syncs normalized Google Maps leads into NocoDB
+- can enrich lead websites with Crawl4AI to discover extra emails, contact pages, and social profiles
 
 ## Dashboard
 
@@ -48,6 +49,21 @@ curl http://localhost:3000/jobs/<job-id>/stats
 curl http://localhost:3000/jobs/<job-id>/shards?limit=50
 curl http://localhost:3000/jobs/<job-id>/errors?limit=25
 curl http://localhost:3000/jobs/<job-id>/leads?limit=100
+curl -X POST http://localhost:3000/jobs/<job-id>/backfill-statuses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "limit": 50,
+    "onlyMissingStatus": true,
+    "concurrency": 2
+  }'
+curl -X POST http://localhost:3000/jobs/<job-id>/enrich-emails \
+  -H "Content-Type: application/json" \
+  -d '{
+    "limit": 25,
+    "onlyMissingEmail": true,
+    "crawl4aiBaseUrl": "https://crawl4ai.luxeillum.com",
+    "crawl4aiBearerToken": "<bearer-token>"
+  }'
 ```
 
 ### Cancel a job
@@ -76,6 +92,53 @@ curl -X POST http://localhost:3000/jobs/<job-id>/resume \
 curl -L "http://localhost:3000/jobs/<job-id>/download?format=csv" -o leads.csv
 curl -L "http://localhost:3000/jobs/<job-id>/download?format=json" -o leads.json
 ```
+
+### Scrape emails from a domain list
+
+```bash
+curl -X POST http://localhost:3000/tools/email-scrape \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": ["example.com", "https://example.org/contact"],
+    "crawl4aiBaseUrl": "https://crawl4ai.luxeillum.com",
+    "crawl4aiBearerToken": "<bearer-token>",
+    "maxPagesPerSite": 6
+  }'
+```
+
+### Recover permanently closed status in existing CSV exports
+
+```bash
+npm run backfill-statuses -- /root/gmapsdata/export.csv
+```
+
+This writes two files next to the source CSV:
+
+- `export.status-backfill.csv` includes `recovered_status` and `status_checked_at`
+- `export.filtered.csv` excludes rows whose recovered status is `permanently_closed`
+
+### Recover business status directly in NocoDB
+
+```bash
+npm run backfill-nocodb-statuses
+```
+
+This walks the configured NocoDB table, selects `source=gmaps` rows with a saved `maps_link`, revisits the Google Maps place page, and writes `business_status` back into NocoDB.
+
+Artifacts are written under `data/` by default:
+
+- `nocodb-status-backfill.checkpoint.json` resumable progress marker
+- `nocodb-status-backfill.report.json` final counters and last processed ID
+- `nocodb-status-backfill.failures.jsonl` retry candidates for failed page loads
+- `nocodb-status-backfill.closed.csv` rows detected as `permanently_closed` or `temporarily_closed`
+
+Useful flags:
+
+- `--batch-size 25` number of NocoDB rows fetched per loop
+- `--concurrency 2` number of browser pages checked in parallel
+- `--start-id 317800` resume from a specific record ID
+- `--limit 500` process only a bounded slice
+- `--no-resume` ignore the checkpoint and start fresh
 
 ## How the country scrape works
 
@@ -114,6 +177,7 @@ Normalized leads include:
 - `placeId`, `cid`, `dataId`, `link`
 - `name`, `category`, `categories`
 - `website`, `phone`, `email`
+- `emails`, `emailSource`, `contactPageUrl`, `socialLinks`
 - `address`, `completeAddress`
 - `city`, `area`, `stateRegion`, `postcode`, `country`
 - `lat`, `lon`
@@ -155,6 +219,17 @@ Normalized leads include:
 - `GMAPS_RADIUS_CAP_METERS` default `45000`
 - `GMAPS_TARGET_SHARD_RADIUS_METERS` default `15000`
 - `GMAPS_EXIT_ON_INACTIVITY` default `90s`
+- `STATUS_CHECK_BROWSER_PATH` optional browser path for place-page status backfill
+- `STATUS_CHECK_TIMEOUT_MS` default `45000`
+- `STATUS_CHECK_CONCURRENCY` default `2`
+
+### Crawl4AI email enrichment
+
+- `CRAWL4AI_BASE_URL` optional default Crawl4AI endpoint for `/tools/email-scrape` and `/jobs/<id>/enrich-emails`
+- `CRAWL4AI_BEARER_TOKEN` optional Bearer token for secured Crawl4AI deployments
+- `EMAIL_ENRICHMENT_TIMEOUT_MS` default `20000`
+- `EMAIL_ENRICHMENT_MAX_PAGES` default `6`
+- `EMAIL_ENRICHMENT_CONCURRENCY` default `2`
 
 ### Job orchestration
 
@@ -177,7 +252,7 @@ Normalized leads include:
 - `NOCODB_AUTO_SYNC_INTERVAL_MINUTES` sync new leads to NocoDB every N minutes while a job is running (default `30`, `0` disables)
 - `NOCODB_AUTO_CREATE_COLUMNS`
 
-The default synced schema already includes website, phone, email, address, city/area/state/postcode fields, reviews, and `raw_json` for full source payload retention.
+The default synced schema already includes website, phone, email, all discovered emails, email source, contact page URL, social link JSON, address, city/area/state/postcode fields, reviews, and `raw_json` for full source payload retention.
 
 ## Local run
 
@@ -209,6 +284,7 @@ docker run \
 - Large countries will still take a long time; this is a resumable batch system, not a one-shot scraper.
 - Long jobs depend on persistent storage. In Coolify, mount a writable volume to `/app/data` so SQLite state survives redeploys.
 - Orphaned `running` shards are reclaimed automatically during normal worker ticks, so a single stale claim no longer blocks job finalization until the next restart.
+- Permanently closed detection is intentionally a second pass over saved place links. It is not practical to do that for every discovered lead during the primary country scrape.
 - Proxy support is optional but useful for long-running country-scale jobs and repeated retries.
 - Comprehensive mode is job-specific and disables gosom fast mode while using the deeper depth setting.
 - `gosom/google-maps-scraper` behavior and blocking risk depend on your execution profile, query density, and proxy quality.

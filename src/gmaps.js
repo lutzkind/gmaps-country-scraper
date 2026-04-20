@@ -229,6 +229,7 @@ function normalizeEntry(entry, bbox) {
     phone: stringValue(entry.phone),
     email: emails[0] || null,
     emails,
+    emailSource: emails[0] ? "gmaps_profile" : null,
     address: stringValue(entry.address),
     completeAddress: entry.complete_address || null,
     city: location.city,
