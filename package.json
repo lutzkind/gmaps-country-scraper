@@ -5,8 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "backfill-statuses": "node scripts/backfill-statuses.js",
-    "backfill-nocodb-statuses": "node scripts/backfill-nocodb-statuses.js"
+    "backfill-statuses": "node scripts/backfill-statuses.js"
   },
   "keywords": [
     "google-maps",

@@ -95,29 +95,6 @@ This writes two files next to the source CSV:
 - `export.status-backfill.csv` includes `recovered_status` and `status_checked_at`
 - `export.filtered.csv` excludes rows whose recovered status is `permanently_closed`
 
-### Recover business status directly in NocoDB
-
-```bash
-npm run backfill-nocodb-statuses
-```
-
-This walks the configured NocoDB table, selects `source=gmaps` rows with enough lead data to resolve a place page, revisits the Google Maps place page, and writes `maps_link` plus `business_status` back into NocoDB.
-
-Artifacts are written under `data/` by default:
-
-- `nocodb-status-backfill.checkpoint.json` resumable progress marker
-- `nocodb-status-backfill.report.json` final counters and last processed ID
-- `nocodb-status-backfill.failures.jsonl` retry candidates for failed page loads
-- `nocodb-status-backfill.closed.csv` rows detected as `permanently_closed` or `temporarily_closed`
-
-Useful flags:
-
-- `--batch-size 25` number of NocoDB rows fetched per loop
-- `--concurrency 2` number of browser pages checked in parallel
-- `--start-id 317800` resume from a specific record ID
-- `--limit 500` process only a bounded slice
-- `--no-resume` ignore the checkpoint and start fresh
-
 ## How the country scrape works
 
 1. Resolve the country boundary and bbox with Nominatim.
