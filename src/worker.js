@@ -7,7 +7,6 @@ const {
 } = require("./geo");
 const { resolveCountry, queryGoogleMaps } = require("./gmaps");
 const { writeArtifacts } = require("./exporters");
-const { createStatusChecker } = require("./status-checker");
 
 function createWorker({ store, config, nocoDb = null }) {
   let timer = null;
@@ -190,8 +189,6 @@ function createWorker({ store, config, nocoDb = null }) {
       return;
     }
 
-    await maybeRecoverLeadMetadata(jobId);
-
     const artifacts = writeArtifacts(store, config, jobId);
     const status = job.failedShards > 0 ? "partial" : "completed";
     const message =
@@ -202,52 +199,6 @@ function createWorker({ store, config, nocoDb = null }) {
 
     if (nocoDb) {
       await nocoDb.syncCompletedJobIfEnabled(jobId);
-    }
-  }
-
-  async function maybeRecoverLeadMetadata(jobId) {
-    if (!config.autoStatusBackfillOnCompletion) {
-      return;
-    }
-
-    const statusChecker = createStatusChecker({ config });
-    if (!statusChecker.isConfigured()) {
-      return;
-    }
-
-    let afterId = 0;
-    while (true) {
-      const cursorBatch = store.getJobLeadsAfterId(jobId, afterId, {
-        limit: config.autoStatusBackfillBatchSize,
-      });
-      if (cursorBatch.length === 0) {
-        break;
-      }
-      afterId = cursorBatch[cursorBatch.length - 1].id;
-
-      const batch = cursorBatch.filter(
-        (lead) =>
-          (!lead.link || !lead.status) &&
-          (lead.link || lead.name || lead.address || lead.phone)
-      );
-
-      if (batch.length === 0) {
-        continue;
-      }
-
-      const results = await statusChecker.checkLeads(batch, {
-        concurrency: config.statusCheckConcurrency,
-        timeoutMs: config.statusCheckTimeoutMs,
-      });
-
-      for (const result of results) {
-        if (result.leadId && !["failed", "skipped"].includes(result.status)) {
-          store.updateLeadStatusRecovery(result.leadId, {
-            status: result.status,
-            link: result.link,
-          });
-        }
-      }
     }
   }
 

@@ -48,13 +48,6 @@ curl http://localhost:3000/jobs/<job-id>/stats
 curl http://localhost:3000/jobs/<job-id>/shards?limit=50
 curl http://localhost:3000/jobs/<job-id>/errors?limit=25
 curl http://localhost:3000/jobs/<job-id>/leads?limit=100
-curl -X POST http://localhost:3000/jobs/<job-id>/backfill-statuses \
-  -H "Content-Type: application/json" \
-  -d '{
-    "limit": 50,
-    "onlyMissingStatus": true,
-    "concurrency": 2
-  }'
 ```
 
 ### Cancel a job

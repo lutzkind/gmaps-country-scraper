@@ -3,8 +3,6 @@ const path = require("path");
 const { resolveSearchParams } = require("./keywords");
 const { createJobId } = require("./worker");
 const { createAuth } = require("./auth");
-const { writeArtifacts } = require("./exporters");
-const { createStatusChecker } = require("./status-checker");
 
 function createApp({ store, config, nocoDb }) {
   const app = express();
@@ -192,60 +190,6 @@ function createApp({ store, config, nocoDb }) {
     });
   });
 
-  app.post("/jobs/:jobId/backfill-statuses", async (req, res, next) => {
-    const job = store.getJob(req.params.jobId);
-    if (!job) {
-      return res.status(404).json({ error: "Job not found." });
-    }
-
-    try {
-      const runtimeConfig = resolveStatusRuntimeConfig(config, req.body || {});
-      const statusChecker = createStatusChecker({ config: runtimeConfig });
-      if (!statusChecker.isConfigured()) {
-        return res.status(400).json({
-          error:
-            "No browser executable found. Set STATUS_CHECK_BROWSER_PATH or GOOGLE_CHROME_PATH.",
-        });
-      }
-
-      const limit = clampInt(req.body?.limit, 25, 1, 500);
-      const offset = clampInt(req.body?.offset, 0, 0, 1000000);
-      const onlyMissingStatus = req.body?.onlyMissingStatus !== false;
-      const targets = store.getStatusCheckTargets(job.id, {
-        limit,
-        offset,
-        onlyMissingStatus,
-      });
-      const results = await statusChecker.checkLeads(targets, req.body || {});
-
-      for (const result of results) {
-        if (result.leadId && !["failed", "skipped"].includes(result.status)) {
-          store.updateLeadStatusRecovery(result.leadId, {
-            status: result.status,
-            link: result.link,
-          });
-        }
-      }
-
-      const artifacts = writeArtifacts(store, config, job.id);
-      store.updateJobArtifacts(job.id, artifacts);
-
-      return res.json({
-        jobId: job.id,
-        onlyMissingStatus,
-        limit,
-        offset,
-        processed: results.length,
-        summary: summarizeStatusResults(results),
-        results,
-        stats: store.getJobStats(job.id),
-        links: buildLinks(req, config, job.id),
-      });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
   app.post("/jobs/:jobId/cancel", (req, res) => {
     const job = store.getJob(req.params.jobId);
     if (!job) {
@@ -401,7 +345,6 @@ function buildLinks(req, config, jobId) {
     shards: `${baseUrl}/jobs/${jobId}/shards`,
     errors: `${baseUrl}/jobs/${jobId}/errors`,
     leads: `${baseUrl}/jobs/${jobId}/leads`,
-    backfillStatuses: `${baseUrl}/jobs/${jobId}/backfill-statuses`,
     csv: `${baseUrl}/jobs/${jobId}/download?format=csv`,
     json: `${baseUrl}/jobs/${jobId}/download?format=json`,
     cancel: `${baseUrl}/jobs/${jobId}/cancel`,
@@ -410,63 +353,6 @@ function buildLinks(req, config, jobId) {
     delete: `${baseUrl}/jobs/${jobId}`,
     nocodbSync: `${baseUrl}/jobs/${jobId}/sync/nocodb`,
   };
-}
-
-function resolveStatusRuntimeConfig(config, body) {
-  return {
-    ...config,
-    statusCheckBrowserPath:
-      cleanString(body.browserPath) || config.statusCheckBrowserPath,
-    statusCheckTimeoutMs: clampInt(
-      body.timeoutMs,
-      config.statusCheckTimeoutMs,
-      5000,
-      120000
-    ),
-    statusCheckConcurrency: clampInt(
-      body.concurrency,
-      config.statusCheckConcurrency,
-      1,
-      8
-    ),
-  };
-}
-
-async function runWithConcurrency(items, concurrency, worker) {
-  const results = new Array(items.length);
-  let cursor = 0;
-
-  const runners = Array.from(
-    { length: Math.min(Math.max(concurrency, 1), items.length || 1) },
-    async () => {
-      while (true) {
-        const index = cursor;
-        cursor += 1;
-        if (index >= items.length) {
-          break;
-        }
-        results[index] = await worker(items[index], index);
-      }
-    }
-  );
-
-  await Promise.all(runners);
-  return results;
-}
-
-function summarizeStatusResults(results) {
-  return results.reduce((summary, result) => {
-    summary[result.status] = (summary[result.status] || 0) + 1;
-    return summary;
-  }, {});
-}
-
-function clampInt(value, fallback, min, max) {
-  const parsed = Number.parseInt(String(value ?? fallback), 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(Math.max(parsed, min), max);
 }
 
 function cleanString(value) {
